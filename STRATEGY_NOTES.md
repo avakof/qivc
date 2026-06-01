@@ -123,3 +123,33 @@ filing tenure. Measuring true multi-year tenure (e.g. for a >3-year routine
 check) would require widening `EdgarClient.get_insider_history` beyond 3 years
 and scanning all transaction codes; deferred as future work, not required for
 correct CMP classifiability.
+
+---
+
+## Sanity Test Coverage Limitations
+
+Invariant 2 (no negative earnings in candidates) is implemented
+by checking the F-Score gate's own reason string for
+"roa_positive" as a failing component. This catches the failure
+mode "F-Score gate correctly identified a negative-ROA name but
+a downstream layer let it through" but NOT "F-Score gate
+incorrectly evaluated ROA as positive when it was actually
+negative."
+
+The latter (F-Score gate wiring bug) would be caught by:
+- Unit tests on the F-Score filter with known fundamentals
+- A future schema enhancement persisting net_income on the
+  per-run fundamentals snapshot
+
+For v2.1, consider persisting net_income, gross_profit, and
+total_assets per ticker per run, enabling sanity invariants to
+verify gate inputs independently of gate outputs.
+
+Live verification note: the qivc sanity CLI was first run
+against run 5de53ecf, which had zero candidates. With zero
+candidates, all five invariants pass vacuously (no candidates
+means no invariant body executes against real data). The
+seeded-violation tests in tests/sanity/ are the actual proof
+that each checker fires on its target failure. The first
+non-vacuous live exercise of the sanity layer will happen
+when a run produces at least one candidate.

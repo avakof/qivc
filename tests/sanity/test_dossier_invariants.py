@@ -293,3 +293,68 @@ def test_required_gates_constant_is_complete() -> None:
         "short_interest",
         "liquidity",
     }
+
+
+# ---------------------------------------------------------------------------
+# Silent-failure detection: zero candidates is only valid if the run completed.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def latest_run(tmp_path: Path) -> Any:
+    """
+    A RunSnapshot mirroring the current production run 5de53ecf: completed with
+    zero candidates. Seeded into a tmp DuckDB so the check is deterministic
+    (status is derived from the run_audit `apply_synthesis` row).
+    """
+    from qivc.sanity import load_run
+
+    db = str(tmp_path / "qivc.db")
+    _seed(db, "completed-empty", [], [])  # logs apply_synthesis → status "completed"
+    return load_run(db, "completed-empty")
+
+
+def test_run_status_consistent_with_candidates(latest_run: Any) -> None:
+    """An empty candidates list is valid if the run completed successfully and
+    regime permitted entries. An empty list paired with run.status != 'completed'
+    is a silent-failure pattern that must surface as a sanity violation."""
+
+    if not latest_run.candidates:
+        assert latest_run.status == "completed", (
+            f"Run {latest_run.run_id} has zero candidates AND "
+            f"status={latest_run.status} — this is a silent "
+            f"failure pattern, not a legitimate empty result."
+        )
+
+
+def test_errored_run_with_zero_candidates_is_flagged(tmp_path: Path) -> None:
+    """Companion: an errored run with zero candidates trips the silent-failure check."""
+    from datetime import datetime
+
+    from qivc.sanity import load_run
+    from qivc.storage import repositories as repo
+
+    db = str(tmp_path / "qivc.db")
+    # An aborted run: regime_check errored, apply_synthesis never ran.
+    repo.log_node_execution(
+        db,
+        "errored-empty",
+        "regime_check",
+        datetime(2026, 6, 1),
+        datetime(2026, 6, 1),
+        1.0,
+        "ERROR: Market regime is risk-off.",
+    )
+    snap = load_run(db, "errored-empty")
+    assert snap is not None
+    assert snap.candidates == []
+    assert snap.status == "errored"
+
+    # The same invariant that test_run_status_consistent_with_candidates asserts
+    # must FAIL here (zero candidates + status != completed).
+    with pytest.raises(AssertionError):
+        if not snap.candidates:
+            assert snap.status == "completed", (
+                f"Run {snap.run_id} has zero candidates AND status={snap.status} "
+                f"— silent failure pattern."
+            )

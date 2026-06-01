@@ -39,6 +39,50 @@ class SanityResult:
 
 
 @dataclass(frozen=True)
+class RunSnapshot:
+    """Minimal view of a completed run for status/consistency checks."""
+
+    run_id: str
+    candidates: list[str]
+    status: str  # "completed" | "errored" | "unknown"
+
+
+def derive_run_status(db_path: str, run_id: str) -> str:
+    """
+    Derive a run's status from run_audit (no separate status column is persisted):
+      - "completed" if apply_synthesis logged a non-error summary,
+      - "errored"   if any node logged an ERROR summary,
+      - "unknown"   otherwise (e.g. process killed before the final node).
+    """
+    rows = repo.get_run_audit(db_path, run_id)
+    if not rows:
+        return "unknown"
+    synth_ok = any(
+        r["node_name"] == "apply_synthesis" and not str(r["result_summary"]).startswith("ERROR")
+        for r in rows
+    )
+    if synth_ok:
+        return "completed"
+    if any(str(r["result_summary"]).startswith("ERROR") for r in rows):
+        return "errored"
+    return "unknown"
+
+
+def load_run(db_path: str, run_id: str | None = None) -> RunSnapshot | None:
+    """Load a RunSnapshot (default: most recent run). None if the DB has no runs."""
+    if run_id is None:
+        run_id = repo.get_latest_run_id(db_path)
+    if run_id is None:
+        return None
+    candidate_gates, _ = _load(db_path, run_id)
+    return RunSnapshot(
+        run_id=run_id,
+        candidates=sorted(candidate_gates.keys()),
+        status=derive_run_status(db_path, run_id),
+    )
+
+
+@dataclass(frozen=True)
 class SanityReport:
     run_id: str | None
     candidate_count: int
