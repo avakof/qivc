@@ -45,13 +45,13 @@ class Fundamentals(BaseModel):
     # Raw values (filter will threshold these)
     roa: float  # net income / total assets — current period
     ocf: float  # operating cash flow — current period (absolute $)
-    delta_roa: float  # ROA(t) − ROA(t−1)
+    delta_roa: float  # ROA(t) - ROA(t-1)
     ocf_gt_ni: bool  # OCF/total_assets > ROA (accruals quality — already binary)
-    delta_leverage: float  # Δ long-term-debt / total-assets ratio
-    delta_liquidity: float  # Δ current ratio
+    delta_leverage: float  # delta long-term-debt / total-assets ratio
+    delta_liquidity: float  # delta current ratio
     no_share_issuance: bool  # shares outstanding did NOT increase YoY
-    delta_gross_margin: float  # Δ gross margin ratio
-    delta_asset_turnover: float  # Δ revenue / total-assets
+    delta_gross_margin: float  # delta gross margin ratio
+    delta_asset_turnover: float  # delta revenue / total-assets
     gross_profit: float
     total_assets: float
 
@@ -105,5 +105,47 @@ class MarketRegime(BaseModel):
     vix_60d_sma: float
     credit_spread_bps: float  # BAA10Y in basis points
     yield_curve_bps: float  # T10Y3M in basis points
-    value_growth_12m: float  # IVE − IVW 12-month total return
+    value_growth_12m: float  # IVE - IVW 12-month total return
     regime: Literal["risk-on", "risk-mid", "risk-off"]
+
+
+# ---------------------------------------------------------------------------
+# Filter-layer types (added in Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class FilterResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    filter_name: str
+    passed: bool | None  # None = UNVERIFIABLE (missing data)
+    metric_value: float | None
+    threshold: float | None
+    reason: str  # human-readable explanation for audit logs
+
+
+class CandidateInput(BaseModel):
+    """Composite input passed to every filter function."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ticker: str
+    fundamentals: Fundamentals
+    valuation: Valuation
+    short_interest: ShortInterest
+    eps_revisions: EpsRevisions
+    liquidity: Liquidity
+    transactions: list[InsiderTransaction]  # the P-code cluster being evaluated
+
+
+class Cluster(BaseModel):
+    """A detected insider cluster (Track A or Track B)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ticker: str
+    transactions: list[InsiderTransaction]
+    track: Literal["A", "B"]
+    window_start: date
+    window_end: date
+    total_value_usd: float
