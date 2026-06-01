@@ -36,6 +36,7 @@ from qivc.schemas import (
     Candidate,
     CandidateInput,
     Cluster,
+    ClusterIntensity,
     EpsRevisions,
     FilterResult,
     Fundamentals,
@@ -47,6 +48,8 @@ from qivc.schemas import (
     Valuation,
 )
 from qivc.storage import repositories as repo
+from qivc.synthesis import conviction as conviction_mod
+from qivc.synthesis import risk_overlay as overlay_mod
 
 log = structlog.get_logger(__name__)
 
@@ -417,6 +420,8 @@ def make_nodes(agents: Any, settings: Any) -> dict[str, Any]:
                         ticker=ticker,
                         cluster=ticker_clusters[0],
                         filter_results=results,
+                        sector=ci.valuation.sector,
+                        gics_industry_group=ci.valuation.gics_industry,
                     )
                 )
 
@@ -430,8 +435,83 @@ def make_nodes(agents: Any, settings: Any) -> dict[str, Any]:
 
     @audit
     async def apply_synthesis(state: PipelineState) -> dict[str, Any]:
-        """Phase 4 placeholder — conviction scoring and risk overlay added later."""
-        return {}
+        """
+        Score each surviving candidate, apply the regime cap, then the
+        sector and sub-sector caps; return the updated candidate list.
+        """
+        candidates = state.get("candidates", [])
+        regime = state.get("regime")
+        valuations = state.get("valuations", {})
+
+        scored: list[Candidate] = []
+        for cand in candidates:
+            # F-Score from the recorded filter result
+            fscore = 0
+            for fr in cand.filter_results:
+                if fr.filter_name == "f_score" and fr.metric_value is not None:
+                    fscore = int(fr.metric_value)
+                    break
+
+            # Cluster intensity from the cluster composition
+            cluster = cand.cluster
+            distinct = len({t.cik for t in cluster.transactions})
+            titles = " ".join(t.title.upper() for t in cluster.transactions)
+            has_csuite = any(t.is_officer for t in cluster.transactions)
+            intensity = ClusterIntensity(
+                distinct_insiders=distinct,
+                has_csuite=has_csuite,
+                has_ceo="CEO" in titles or "CHIEF EXECUTIVE" in titles,
+                has_cfo="CFO" in titles or "CHIEF FINANCIAL" in titles,
+            )
+
+            # Valuation discount fraction below the sector median
+            discount = 0.0
+            val = valuations.get(cand.ticker)
+            if val is not None and val.sector_median_metric_value:
+                metric = (
+                    val.forward_pe
+                    if val.forward_pe is not None
+                    else val.ev_ebitda
+                    if val.ev_ebitda is not None
+                    else val.p_tbv
+                )
+                if metric is not None and val.sector_median_metric_value > 0:
+                    discount = max(
+                        0.0,
+                        (val.sector_median_metric_value - metric) / val.sector_median_metric_value,
+                    )
+
+            # Insider track record is not yet computed in the live pipeline →
+            # None (0 points), per the brief's UNCLASSIFIED fallback.
+            cs = conviction_mod.score(
+                fscore=fscore,
+                insider_track_record=None,
+                valuation_discount_pct=discount,
+                cluster_intensity=intensity,
+            )
+
+            base_size = cs.indicative_size
+            flags = list(cand.flags)
+            if regime is not None:
+                base_size, note = overlay_mod.apply_regime_cap(base_size, regime)
+                flags.append(note)
+
+            scored.append(
+                cand.model_copy(
+                    update={
+                        "conviction_score": cs.total,
+                        "conviction_breakdown": cs.breakdown,
+                        "indicative_size_pct": base_size,
+                        "flags": flags,
+                    }
+                )
+            )
+
+        # Sector cap, then sub-sector cap
+        scored = overlay_mod.apply_sector_cap(scored)
+        scored = overlay_mod.apply_subsector_cap(scored)
+
+        return {"candidates": scored}
 
     return {
         "regime_check": regime_check,

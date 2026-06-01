@@ -64,5 +64,7 @@ class PipelineState(TypedDict):
     filter_results: Annotated[dict[str, list[FilterResult]], _merge_dicts]
 
     # --- final outputs ---
-    candidates: Annotated[list[Candidate], _merge_lists]
+    # candidates is written by apply_filters then OVERWRITTEN (scored + capped)
+    # by apply_synthesis — sequential single-writer, so no merge reducer.
+    candidates: list[Candidate]
     rejected: Annotated[list[RejectedCandidate], _merge_lists]

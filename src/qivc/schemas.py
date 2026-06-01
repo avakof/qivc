@@ -156,6 +156,36 @@ class Cluster(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class InsiderTrackRecord(BaseModel):
+    """Historical buy track record for the cluster's insiders (Phase 4 scoring)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    prior_buys: int  # number of prior opportunistic buys in the lookback
+    positive_12m: bool  # were those prior buys followed by positive 12m returns
+
+
+class ClusterIntensity(BaseModel):
+    """Summary of a cluster's composition, used by the conviction scorer."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    distinct_insiders: int
+    has_csuite: bool  # at least one officer in the cluster
+    has_ceo: bool
+    has_cfo: bool
+
+
+class ConvictionScore(BaseModel):
+    """Output of the 4-dimension conviction scorer."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    total: int
+    breakdown: dict[str, int]  # per-dimension points
+    indicative_size: float  # FRACTION of portfolio, e.g. 0.07 = 7%
+
+
 class Candidate(BaseModel):
     """A ticker that passed all active gates."""
 
@@ -164,8 +194,12 @@ class Candidate(BaseModel):
     ticker: str
     cluster: Cluster
     filter_results: list[FilterResult]
+    sector: str = ""  # GICS sector (for sector cap)
+    gics_industry_group: str = ""  # GICS industry/sub-sector (for sub-sector cap)
     conviction_score: int = 0  # populated in Phase 4
-    indicative_size_pct: float = 0.0  # populated in Phase 4
+    conviction_breakdown: dict[str, int] = {}  # per-dimension points
+    indicative_size_pct: float = 0.0  # FRACTION of portfolio (0.07 = 7%); post-overlay
+    flags: list[str] = []  # e.g. "EXCEEDS_SECTOR_CAP", regime notes
 
 
 class RejectedCandidate(BaseModel):

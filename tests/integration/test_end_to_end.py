@@ -431,6 +431,19 @@ async def test_end_to_end_good_ticker_is_candidate(tmp_path: Any) -> None:
         (c["ticker"] if isinstance(c, dict) else c.ticker) == good_ticker for c in candidates
     ), f"Expected {good_ticker} candidate; candidates={candidates}, rejected={final['rejected']}"
 
+    # Phase 4: apply_synthesis must have populated conviction score + indicative size.
+    good = next(
+        c for c in candidates if (c["ticker"] if isinstance(c, dict) else c.ticker) == good_ticker
+    )
+    conviction = good["conviction_score"] if isinstance(good, dict) else good.conviction_score
+    size = good["indicative_size_pct"] if isinstance(good, dict) else good.indicative_size_pct
+    breakdown = (
+        good["conviction_breakdown"] if isinstance(good, dict) else good.conviction_breakdown
+    )
+    # F-Score 9 (→3) + 3 distinct C-suite buyers (→3) = at least 6; size ≥ 5%
+    assert conviction >= 6, f"expected conviction ≥ 6, got {conviction} ({breakdown})"
+    assert size >= 0.05, f"expected indicative size ≥ 5%, got {size}"
+
 
 async def test_risk_off_blocks_entries(tmp_path: Any) -> None:
     """In risk-off regime without --force, graph should raise after regime_check."""
