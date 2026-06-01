@@ -109,3 +109,45 @@ def test_log_node_execution_bad_path_is_swallowed() -> None:
     now = datetime(2026, 5, 1)
     # Directory path that cannot be a DB file → exception caught internally
     repo.log_node_execution("/nonexistent\x00/bad.db", "n", "node", now, now, 1.0, "x")
+
+
+def test_save_and_get_insider_classifications(tmp_path: Path) -> None:
+    db = str(tmp_path / "qivc.db")
+    records: list[dict[str, object]] = [
+        {
+            "ticker": "FCN",
+            "cik": "111",
+            "name": "Jane CEO",
+            "classification": "opportunistic",
+            "years_history": 3,
+            "n_purchases": 2,
+            "total_value_usd": 1_400_000.0,
+            "is_officer": True,
+        },
+        {
+            "ticker": "FCN",
+            "cik": "222",
+            "name": "Bob Director",
+            "classification": "unclassified",
+            "years_history": 1,
+            "n_purchases": 1,
+            "total_value_usd": 50_000.0,
+            "is_officer": False,
+        },
+    ]
+    repo.save_insider_classifications(db, "run-x", records)
+
+    rows = repo.get_insider_classifications(db, "run-x")
+    assert len(rows) == 2
+    by_cik = {r["cik"]: r for r in rows}
+    assert by_cik["111"]["classification"] == "opportunistic"
+    assert by_cik["111"]["n_purchases"] == 2
+    assert by_cik["111"]["is_officer"] is True
+    assert by_cik["222"]["classification"] == "unclassified"
+    assert by_cik["222"]["years_history"] == 1
+
+
+def test_save_insider_classifications_empty_is_noop(tmp_path: Path) -> None:
+    db = str(tmp_path / "qivc.db")
+    repo.save_insider_classifications(db, "run-y", [])
+    assert repo.get_insider_classifications(db, "run-y") == []

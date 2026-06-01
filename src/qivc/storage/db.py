@@ -33,6 +33,19 @@ _MIGRATIONS: list[str] = [
         reason       VARCHAR  NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS insider_classifications (
+        run_id          VARCHAR  NOT NULL,
+        ticker          VARCHAR  NOT NULL,
+        cik             VARCHAR  NOT NULL,
+        name            VARCHAR  NOT NULL,
+        classification  VARCHAR  NOT NULL,   -- opportunistic | routine | unclassified
+        years_history   INTEGER  NOT NULL,
+        n_purchases     INTEGER  NOT NULL,   -- P-code transactions in the window
+        total_value_usd DOUBLE   NOT NULL,
+        is_officer      BOOLEAN  NOT NULL
+    )
+    """,
 ]
 
 

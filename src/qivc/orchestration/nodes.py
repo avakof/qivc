@@ -337,6 +337,31 @@ def make_nodes(agents: Any, settings: Any) -> dict[str, Any]:
             classifications,
             window_days=settings.cluster_window_days,
         )
+
+        # Persist per-insider classifications for audit (one row per ticker-CIK).
+        run_id = state.get("run_id", "unknown")
+        agg: dict[tuple[str, str], dict[str, Any]] = {}
+        for t in all_txns:
+            key = (t.ticker, t.cik)
+            rec = agg.get(key)
+            if rec is None:
+                hist = histories.get(t.cik)
+                agg[key] = {
+                    "ticker": t.ticker,
+                    "cik": t.cik,
+                    "name": t.name,
+                    "classification": classifications.get(t.cik, "unclassified"),
+                    "years_history": hist.years_of_history if hist else 0,
+                    "n_purchases": 1,
+                    "total_value_usd": t.value_usd,
+                    "is_officer": t.is_officer,
+                }
+            else:
+                rec["n_purchases"] = int(rec["n_purchases"]) + 1
+                rec["total_value_usd"] = float(rec["total_value_usd"]) + t.value_usd
+                rec["is_officer"] = bool(rec["is_officer"]) or t.is_officer
+        repo.save_insider_classifications(db_path, run_id, list(agg.values()))
+
         return {"clusters": clusters}
 
     # --------------------------------------------------------------- filters

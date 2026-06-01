@@ -140,3 +140,72 @@ def get_filter_results(db_path: str, run_id: str) -> list[dict[str, object]]:
         "reason",
     ]
     return [dict(zip(cols, row, strict=False)) for row in result]
+
+
+def save_insider_classifications(
+    db_path: str,
+    run_id: str,
+    records: list[dict[str, object]],
+) -> None:
+    """
+    Persist per-insider CMP classifications for a run.
+
+    Each record must have: ticker, cik, name, classification, years_history,
+    n_purchases, total_value_usd, is_officer.
+    """
+    if not records:
+        return
+    rows = [
+        [
+            run_id,
+            r["ticker"],
+            r["cik"],
+            r["name"],
+            r["classification"],
+            r["years_history"],
+            r["n_purchases"],
+            r["total_value_usd"],
+            r["is_officer"],
+        ]
+        for r in records
+    ]
+    try:
+        with get_connection(db_path) as conn:
+            conn.executemany(
+                """
+                INSERT INTO insider_classifications
+                    (run_id, ticker, cik, name, classification, years_history,
+                     n_purchases, total_value_usd, is_officer)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+    except Exception as exc:
+        log.warning("Failed to persist insider_classifications: %s", exc)
+
+
+def get_insider_classifications(db_path: str, run_id: str) -> list[dict[str, object]]:
+    """Return all persisted insider classifications for a run, ordered by ticker, cik."""
+    with get_connection(db_path) as conn:
+        result = conn.execute(
+            """
+            SELECT run_id, ticker, cik, name, classification, years_history,
+                   n_purchases, total_value_usd, is_officer
+            FROM insider_classifications
+            WHERE run_id = ?
+            ORDER BY ticker, cik
+            """,
+            [run_id],
+        ).fetchall()
+    cols = [
+        "run_id",
+        "ticker",
+        "cik",
+        "name",
+        "classification",
+        "years_history",
+        "n_purchases",
+        "total_value_usd",
+        "is_officer",
+    ]
+    return [dict(zip(cols, row, strict=False)) for row in result]
