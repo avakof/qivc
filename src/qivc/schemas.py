@@ -225,3 +225,57 @@ class RunReport(BaseModel):
     rejected: list[RejectedCandidate]
     universe_size: int  # total tickers screened
     run_duration_seconds: float
+
+
+# ---------------------------------------------------------------------------
+# Backtest types (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+class BacktestTrade(BaseModel):
+    """A single round-trip (or still-open) position in a backtest."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ticker: str
+    entry_date: date
+    exit_date: date | None  # None = still held at backtest end
+    entry_price: float
+    exit_price: float | None
+    return_pct: float | None  # fractional return over the hold (None if open)
+    hold_days: int | None
+
+
+class BacktestMetrics(BaseModel):
+    """Headline performance metrics for a backtest run."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    cagr: float
+    sharpe: float
+    sortino: float
+    max_drawdown: float  # negative fraction, e.g. -0.18
+    calmar: float
+    hit_rate: float  # fraction of closed trades that were profitable
+    avg_hold_days: float
+    alpha_vs_iwn: float  # annualised excess return vs Russell 2000 Value (IWN)
+    total_return: float
+    final_equity: float
+
+
+class BacktestResult(BaseModel):
+    """Full output of a backtest run."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    backtest_id: str
+    start: date
+    end: date
+    rebalance_freq: Literal["W", "M"]
+    initial_capital: float
+    slippage_bps: float
+    commission_bps: float
+    metrics: BacktestMetrics
+    equity_curve: list[tuple[date, float]]  # (date, portfolio value)
+    trades: list[BacktestTrade]
+    notes: list[str]  # methodology caveats (e.g. sector-median lookahead)

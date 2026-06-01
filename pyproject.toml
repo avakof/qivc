@@ -14,10 +14,12 @@ dependencies = [
     "jinja2>=3.1.6",
     "langgraph>=1.0",
     "langgraph-checkpoint-sqlite>=3.1.0",
+    "pyarrow>=24.0.0",
     "pydantic>=2.7",
     "pydantic-settings>=2.14.1",
     "structlog>=25.5.0",
     "typer>=0.26.4",
+    "vectorbt>=1.0.0",
     "yfinance>=1.4.1",
 ]
 
@@ -51,7 +53,12 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["edgar", "edgar.*", "yfinance", "yfinance.*", "pandas", "pandas.*"]
+module = [
+    "edgar", "edgar.*",
+    "yfinance", "yfinance.*",
+    "pandas", "pandas.*",
+    "vectorbt", "vectorbt.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

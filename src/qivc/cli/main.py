@@ -201,6 +201,154 @@ async def _run_screen(
 
 
 # ---------------------------------------------------------------------------
+# backtest
+# ---------------------------------------------------------------------------
+
+_DEFAULT_BACKTEST_UNIVERSE = "UNH,FCN,AZO,JPM,XOM,AAPL,MSFT,JNJ"
+
+
+@app.command()
+def backtest(
+    start: str = typer.Option(..., "--start", help="Start date YYYY-MM-DD."),
+    end: str = typer.Option(..., "--end", help="End date YYYY-MM-DD."),
+    rebalance_freq: str = typer.Option("M", "--freq", help="Rebalance frequency: W or M."),
+    universe: str = typer.Option(
+        _DEFAULT_BACKTEST_UNIVERSE, "--universe", help="Comma-separated tickers."
+    ),
+    initial_capital: float = typer.Option(1_000_000.0, "--capital"),
+    slippage_bps: float = typer.Option(5.0, "--slippage-bps"),
+    commission_bps: float = typer.Option(1.0, "--commission-bps"),
+    output_dir: str | None = typer.Option(None, "--output-dir"),
+) -> None:
+    """Replay the screen historically (point-in-time) and report simulated returns."""
+    from datetime import date as _date
+
+    from qivc.config import Settings
+
+    settings = Settings()
+    out_dir = output_dir or "data/backtests"
+    tickers = [t.strip().upper() for t in universe.split(",") if t.strip()]
+    bt_id = asyncio.run(
+        _run_backtest(
+            settings,
+            start=_date.fromisoformat(start),
+            end=_date.fromisoformat(end),
+            rebalance_freq=rebalance_freq,
+            universe=tickers,
+            initial_capital=initial_capital,
+            slippage_bps=slippage_bps,
+            commission_bps=commission_bps,
+            output_dir=out_dir,
+        )
+    )
+    typer.echo(f"Backtest complete: {bt_id}")
+    typer.echo(f"Output: {Path(out_dir) / bt_id}")
+
+
+async def _pit_quality_holdings(
+    client: Any,
+    universe: list[str],
+    as_of: Any,
+) -> list[str]:
+    """
+    PIT screen subset usable in a backtest: hold names whose most-recent 10-K/10-Q
+    FILED before `as_of` yields a Piotroski F-Score >= 7.
+
+    (Full insider-cluster backtesting needs historical Form 4 bulk data — the
+    documented Phase 7 limitation; the live backtest screen is the quality core.)
+    """
+    from qivc.backtest.pit import get_fundamentals_as_of
+    from qivc.data.fundamentals_agent import _compute_fundamentals
+    from qivc.filters.fscore import compute_fscore
+
+    held: list[str] = []
+    for ticker in universe:
+        try:
+            cur = await get_fundamentals_as_of(client, ticker, as_of)
+            if cur is None:
+                continue
+            fundamentals = _compute_fundamentals(ticker, "PIT", cur, None)
+            score, _ = compute_fscore(fundamentals)
+            if score >= 7:
+                held.append(ticker)
+        except Exception as exc:
+            import structlog
+
+            structlog.get_logger(__name__).debug("pit_screen_skip", ticker=ticker, error=str(exc))
+    return held
+
+
+async def _run_backtest(
+    settings: Any,
+    start: Any,
+    end: Any,
+    rebalance_freq: str,
+    universe: list[str],
+    initial_capital: float,
+    slippage_bps: float,
+    commission_bps: float,
+    output_dir: str,
+) -> str:
+    import uuid as _uuid
+
+    import pandas as pd
+    import yfinance as yf
+
+    from qivc.backtest.harness import _rebalance_dates, run_backtest
+    from qivc.logging_config import configure_logging
+
+    configure_logging(
+        level=getattr(settings, "log_level", "INFO"),
+        fmt=getattr(settings, "log_format", "json"),
+    )
+
+    # Fetch close prices for the universe + IWN benchmark.
+    symbols = [*universe, "IWN"]
+    raw = yf.download(symbols, start=str(start), end=str(end), progress=False, auto_adjust=True)
+    close = raw.get("Close", raw)
+    close = close.dropna(how="all")
+    price = close[[c for c in universe if c in close.columns]]
+    benchmark = close["IWN"] if "IWN" in close.columns else None
+
+    # Pre-compute PIT holdings for each rebalance date (async), then look them up.
+    agents = build_agents(settings)
+    client = agents.regime._client if hasattr(agents.regime, "_client") else None
+    if client is None:
+        from qivc.data.edgar_client import EdgarClient
+
+        client = EdgarClient(user_agent=settings.edgar_user_agent)
+
+    rebal_dates = _rebalance_dates(pd.DatetimeIndex(price.index), rebalance_freq)  # type: ignore[arg-type]
+    holdings: dict[Any, list[str]] = {}
+    for d in rebal_dates:
+        holdings[pd.Timestamp(d).date()] = await _pit_quality_holdings(
+            client, universe, pd.Timestamp(d).date()
+        )
+
+    def screen_fn(as_of: Any) -> list[str]:
+        return holdings.get(as_of, [])
+
+    bt_id = str(_uuid.uuid4())
+    result = run_backtest(
+        start=start,
+        end=end,
+        rebalance_freq=rebalance_freq,  # type: ignore[arg-type]
+        initial_capital=initial_capital,
+        slippage_bps=slippage_bps,
+        commission_bps=commission_bps,
+        screen_fn=screen_fn,
+        price_data=price,
+        benchmark=benchmark,
+        backtest_id=bt_id,
+    )
+
+    from qivc.backtest.io import write_backtest_outputs
+
+    write_backtest_outputs(result, Path(output_dir) / bt_id)
+    return bt_id
+
+
+# ---------------------------------------------------------------------------
 # graph
 # ---------------------------------------------------------------------------
 
