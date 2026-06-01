@@ -1,0 +1,53 @@
+[project]
+name = "qivc"
+version = "0.1.0"
+description = "QIVC v2.0 — long-only equity research screening system"
+readme = "README.md"
+authors = [
+    { name = "avakof", email = "avakof@albertschool.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.5.3",
+    "edgartools>=5.33.0",
+    "httpx>=0.28.1",
+    "langgraph>=1.0",
+    "langgraph-checkpoint-sqlite>=3.1.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.14.1",
+    "structlog>=25.5.0",
+    "typer>=0.26.4",
+    "yfinance>=1.4.1",
+]
+
+[project.scripts]
+qivc = "qivc.cli.main:app"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.155.1",
+    "mypy>=2.1.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "responses>=0.26.1",
+    "ruff>=0.15.15",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
