@@ -208,6 +208,161 @@ def test_audit_after_screen(patched_env: Path) -> None:
     assert "f_score" in audit_result.output
 
 
+def test_screen_writes_sanity_appendix(patched_env: Path) -> None:
+    """`qivc screen` folds sanity-check results into report.md."""
+    result = runner.invoke(cli_main.app, ["screen", "--ticker", "UNH"])
+    assert result.exit_code == 0, result.output
+    run_dir = next((patched_env / "runs").iterdir())
+    md = (run_dir / "report.md").read_text()
+    assert "Appendix: Sanity Checks" in md
+    assert "no_microcap" in md
+
+
+def test_sanity_command_passes_on_clean_run(patched_env: Path) -> None:
+    """`qivc sanity` reports PASS when invariants hold for the latest run."""
+    from qivc.sanity import REQUIRED_GATES
+    from qivc.schemas import Candidate, Cluster, FilterResult, InsiderTransaction
+    from qivc.storage import repositories as repo
+
+    db = str(patched_env / "qivc.db")
+    txn = InsiderTransaction(
+        cik="C1",
+        name="Insider",
+        title="CEO",
+        ticker="GOOD",
+        shares=1000.0,
+        price=100.0,
+        value_usd=300_000.0,
+        transaction_date=date(2026, 5, 1),
+        filed_date=date(2026, 5, 1),
+        transaction_code="P",
+        is_director=False,
+        is_officer=True,
+        is_ten_percent_owner=False,
+    )
+    cluster = Cluster(
+        ticker="GOOD",
+        transactions=[txn],
+        track="B",
+        window_start=date(2026, 5, 1),
+        window_end=date(2026, 5, 1),
+        total_value_usd=300_000.0,
+    )
+    gates = [
+        FilterResult(
+            filter_name=g,
+            passed=True,
+            metric_value=(5e8 if g == "liquidity" else 1.0),
+            threshold=None,
+            reason="ok",
+        )
+        for g in REQUIRED_GATES
+    ]
+    cand = Candidate(
+        ticker="GOOD",
+        cluster=cluster,
+        filter_results=gates,
+        sector="Industrials",
+        gics_industry_group="Test",
+    )
+    from datetime import datetime
+
+    repo.log_node_execution(
+        db, "clean-run", "apply_synthesis", datetime(2026, 6, 1), datetime(2026, 6, 1), 1.0, "ok"
+    )
+    repo.save_filter_results(db, "clean-run", [cand], [])
+    repo.save_insider_classifications(
+        db,
+        "clean-run",
+        [
+            {
+                "ticker": "GOOD",
+                "cik": "C1",
+                "name": "Insider",
+                "classification": "opportunistic",
+                "years_history": 3,
+                "n_purchases": 1,
+                "total_value_usd": 300_000.0,
+                "is_officer": True,
+            }
+        ],
+    )
+
+    result = runner.invoke(cli_main.app, ["sanity", "--run-id", "clean-run"])
+    assert result.exit_code == 0, result.output
+    assert "All invariants passed" in result.output
+
+
+def test_sanity_command_fails_on_microcap(patched_env: Path) -> None:
+    """`qivc sanity` exits non-zero and names the offender on a violation."""
+    from qivc.sanity import REQUIRED_GATES
+    from qivc.schemas import Candidate, Cluster, FilterResult, InsiderTransaction
+    from qivc.storage import repositories as repo
+
+    db = str(patched_env / "qivc.db")
+    txn = InsiderTransaction(
+        cik="C1",
+        name="Insider",
+        title="CEO",
+        ticker="GPUS",
+        shares=1.0,
+        price=1.0,
+        value_usd=1.0,
+        transaction_date=date(2026, 5, 1),
+        filed_date=date(2026, 5, 1),
+        transaction_code="P",
+        is_director=False,
+        is_officer=True,
+        is_ten_percent_owner=False,
+    )
+    cluster = Cluster(
+        ticker="GPUS",
+        transactions=[txn],
+        track="B",
+        window_start=date(2026, 5, 1),
+        window_end=date(2026, 5, 1),
+        total_value_usd=1.0,
+    )
+    gates = [
+        FilterResult(
+            filter_name=g,
+            passed=True,
+            metric_value=(9e7 if g == "liquidity" else 1.0),  # micro-cap!
+            threshold=None,
+            reason="ok",
+        )
+        for g in REQUIRED_GATES
+    ]
+    cand = Candidate(ticker="GPUS", cluster=cluster, filter_results=gates)
+    from datetime import datetime
+
+    repo.log_node_execution(
+        db, "bad-run", "apply_synthesis", datetime(2026, 6, 1), datetime(2026, 6, 1), 1.0, "ok"
+    )
+    repo.save_filter_results(db, "bad-run", [cand], [])
+    repo.save_insider_classifications(
+        db,
+        "bad-run",
+        [
+            {
+                "ticker": "GPUS",
+                "cik": "C1",
+                "name": "Insider",
+                "classification": "opportunistic",
+                "years_history": 3,
+                "n_purchases": 1,
+                "total_value_usd": 1.0,
+                "is_officer": True,
+            }
+        ],
+    )
+
+    result = runner.invoke(cli_main.app, ["sanity", "--run-id", "bad-run"])
+    assert result.exit_code == 1
+    assert "no_microcap" in result.output
+    assert "GPUS" in result.output
+
+
 def test_audit_shows_insider_classifications(patched_env: Path) -> None:
     """`qivc audit` surfaces per-insider CMP labels alongside the gate breakdown."""
     from qivc.schemas import FilterResult, RejectedCandidate

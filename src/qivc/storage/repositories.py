@@ -142,6 +142,19 @@ def get_filter_results(db_path: str, run_id: str) -> list[dict[str, object]]:
     return [dict(zip(cols, row, strict=False)) for row in result]
 
 
+def get_latest_run_id(db_path: str) -> str | None:
+    """Return the most recent run_id by audit entry time, or None if the DB is empty."""
+    try:
+        with get_connection(db_path) as conn:
+            row = conn.execute(
+                "SELECT run_id FROM run_audit ORDER BY entered_at DESC LIMIT 1"
+            ).fetchone()
+    except Exception as exc:
+        log.warning("get_latest_run_id failed: %s", exc)
+        return None
+    return str(row[0]) if row else None
+
+
 def save_insider_classifications(
     db_path: str,
     run_id: str,

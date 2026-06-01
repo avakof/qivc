@@ -67,5 +67,6 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "live: hits real network (SEC EDGAR / FRED / yfinance); skipped by default",
+    "sanity: dossier-invariant checks runnable separately via `pytest tests/sanity`",
 ]
 addopts = "-m 'not live'"

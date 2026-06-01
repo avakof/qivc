@@ -197,7 +197,34 @@ async def _run_screen(
     # Persist per-ticker gate results for `qivc audit`
     repo.save_filter_results(db_path, run_id, candidates, rejected)
 
+    # Run discipline: sanity-check the just-completed run and fold the results
+    # into the Markdown report. Anomalies are surfaced, not blocked.
+    _append_sanity_to_report(db_path, run_id, run_dir / "report.md")
+
     return run_id
+
+
+def _append_sanity_to_report(db_path: str, run_id: str, report_path: Path) -> None:
+    """Append a sanity-check appendix to report.md; prepend a warning header on failure."""
+    from qivc.sanity import check_run
+
+    report = check_run(db_path, run_id)
+
+    lines = ["", "---", "", "## Appendix: Sanity Checks", ""]
+    for r in report.results:
+        status = "PASS" if r.passed else "FAIL"
+        row = f"- **[{status}]** `{r.name}` — {r.detail}"
+        if not r.passed:
+            row += f" — offenders: {', '.join(r.offenders)}"
+        lines.append(row)
+
+    try:
+        existing = report_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return
+    if not report.all_passed:
+        existing = "> ⚠️ SANITY CHECK FAILED — see appendix for details\n\n" + existing
+    report_path.write_text(existing + "\n".join(lines) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +463,41 @@ def audit(run_id: str = typer.Argument(..., help="Run ID to audit.")) -> None:
                 f"{c['n_purchases']} buy(s), ${float(c['total_value_usd']):,.0f}, "
                 f"{c['years_history']}y history"
             )
+
+
+# ---------------------------------------------------------------------------
+# sanity
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def sanity(
+    run_id: str | None = typer.Option(None, "--run-id", help="Run to check (default: latest)."),
+) -> None:
+    """Run dossier-invariant sanity checks against a run and report PASS/FAIL."""
+    from qivc.config import Settings
+    from qivc.sanity import check_run
+
+    settings = Settings()
+    db_path = getattr(settings, "db_path", "data/duckdb/qivc.db")
+    report = check_run(db_path, run_id)
+
+    if report.run_id is None:
+        typer.echo("No run found in the database.")
+        raise typer.Exit(code=0)
+
+    typer.echo(f"=== Sanity checks: run {report.run_id} ({report.candidate_count} candidates) ===")
+    for r in report.results:
+        status = "PASS" if r.passed else "FAIL"
+        line = f"  [{status}] {r.name:<24} {r.detail}"
+        if not r.passed:
+            line += f"  offenders: {', '.join(r.offenders)}"
+        typer.echo(line)
+
+    if not report.all_passed:
+        typer.echo("\n⚠️  One or more invariants FAILED.")
+        raise typer.Exit(code=1)
+    typer.echo("\nAll invariants passed.")
 
 
 # ---------------------------------------------------------------------------
