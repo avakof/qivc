@@ -5,59 +5,58 @@ the next version. These are **research questions, not implemented behaviour.**
 
 ---
 
-## OQ-1 — Former-CEO directors and Track B eligibility
+## OQ-1 — First-time-buyer signals vs. CMP classifiability (reframed)
 
 **Surfaced by:** the first live market-wide screens (June 2026), ticker **AZO**.
 
-**The signal.** Brian Hannasch — former CEO of Alimentation Couche-Tard, now a
-**non-executive director** of AutoZone — made an opportunistic open-market
-purchase of **~$493K**, near AZO's 52-week low. The CMP classifier correctly
-labelled it **opportunistic** (no routine same-month pattern), and the buy size
-clears the **$250K Track B threshold**.
+**The signal.** Brian Hannasch — former CEO of Alimentation Couche-Tard, an
+AutoZone **director** since Feb 2022 — made an open-market purchase of **~$493K**,
+near AZO's 52-week low. On its face this is exactly the conviction signal the
+strategy hunts for: a senior, informed insider buying size into weakness.
 
-**Why the system rejected it.** Track B (per PROJECT_BRIEF §1.4 / Phase 2) requires
-the opportunistic buyer to be a **C-suite officer**. Hannasch files as a
-**director** (`is_officer = False`), so Track B does not fire, and a single buyer
-cannot satisfy Track A (which needs ≥3 distinct opportunistic insiders in 7 days).
-The candidate was rejected at the `insider_conviction` gate — **correctly, per the
-current spec.**
+**Why the system rejected it (corrected after the OQ-2 fix).** The *original*
+reading was "Track B requires a C-suite officer and Hannasch is a director." That
+was wrong about the binding constraint. With `years_of_history` now measured from
+actual trading history (OQ-2), Hannasch has **only one open-market purchase ever
+at AZO** → `years_of_history = 0` → **UNCLASSIFIED** under strict CMP. He is
+excluded from the opportunistic count *before* Track A/B eligibility is even
+considered. The candidate fails at the `insider_conviction` gate because he is
+**unclassifiable**, not because of his officer/director status.
 
-**The open question for v2.1.**
-> Should a director who is a **former C-suite operator of a comparable company**
-> receive C-suite-equivalent Track B treatment?
+This matches Cohen-Malloy-Pomorski (2012): an insider is classifiable only if
+they **traded at least once in each of the prior three years**. CMP measures
+*trading-pattern history*, not employment tenure or seniority. Board tenure is
+irrelevant; a one-buy history is unclassifiable by construction.
 
-Arguments **for** widening:
-- Academic insider-information literature weights *informedness*; a former public-
-  company CEO arguably reads a 10-K as well as a sitting CFO.
-- A near-52-week-low, sized, opportunistic buy by such a person is exactly the
-  conviction signal the strategy hunts for.
+**The reframed open question for v2.1.**
+> CMP's exclusion of first-time buyers is about **classifiability, not about lack
+> of information**. A former public-company CEO buying $493K into a 52-week low is
+> plausibly *more* informed than a routine repeat-trader — yet CMP discards the
+> signal purely because there's no multi-year trading pattern to classify.
+>
+> Should **single-buy events from first-time-buyer insiders** trigger a *separate
+> signal path that bypasses CMP* (e.g. gated on seniority + size + proximity to
+> lows), rather than being silently dropped?
 
-Arguments **against** (keep the spec):
-- "Former CEO of a comparable company" is fuzzy and hard to operationalise
-  without a curated mapping → backtest/maintenance burden and look-ahead risk.
-- Directors trade on board-level information, not operating P&L detail; the
-  C-suite restriction is a deliberate quality bar.
-- Widening Track B raises false-positive risk; the strategy is intentionally
-  conservative.
+This is **not** the earlier "widen Track B to former-CEO directors" question —
+that framing mis-located the failure. The real design tension is whether
+classifiability should be a hard prerequisite for *any* insider signal, or only
+for the routine/opportunistic *distinction*.
 
-**Possible v2.1 designs (if we widen):**
-1. A new **Track B-prime**: 1 opportunistic director with a buy ≥ a *higher*
-   threshold (e.g. $1M) AND a flag that the director held a C-suite role at a
-   public company in the last N years (manual/curated `prior_csuite` list).
-2. A **conviction-score bump** rather than gate eligibility: keep Track B
-   C-suite-only, but award extra `cluster_intensity` points when a
-   former-C-suite director buys — surfaces the name without auto-passing it.
+**Constraints / risks (unchanged):**
+- A bypass path is harder to backtest (no historical pattern to lean on) and
+  raises false-positive risk; the strategy is intentionally conservative.
+- "Senior + informed" is fuzzy to operationalise without curated data.
 
-**Recommendation:** prefer option 2 (annotate, don't auto-admit) — it preserves
-the conservative gate while not discarding the signal. Decision deferred to v2.1;
-requires an explicit brief update before implementation.
+**Decision deferred to v2.1.** Document only; **do not** implement a bypass path.
+Requires an explicit brief update before any strategy change.
 
 ---
 
-## OQ-2 — `years_of_history` is not measured (data-quality bug, not strategy)
+## OQ-2 — `years_of_history` was not measured (data-quality bug) — **RESOLVED**
 
 **Surfaced by:** auditing the live classifications — all insiders reported
-exactly `3` years of history.
+exactly `3` years of history. **Fixed**; see the resolution section below.
 
 `InsiderHistoryAgent` computes `years_of_history` as
 `min(years, max(1, today.year - (today.year - years)))`, which is algebraically
@@ -79,3 +78,41 @@ should be cached (TTL 90 days). They are **not** cached — every run re-fetches
 each CIK's history live from EDGAR (~1 throttled request per unique CIK). Fine
 for the bounded daily scan; costly for a full-universe scan. Caching is a v2.1
 item.
+
+---
+
+## OQ-2 Resolution: `years_of_history` Semantics
+
+The field measures **trading-history depth, not employment tenure.**
+`InsiderHistoryAgent` now computes
+`years_of_history = floor((today - earliest_P_code_filing) / 365.25)`, or `0`
+when the insider has no prior open-market purchases in the fetched window.
+
+This matches Cohen-Malloy-Pomorski (2012)'s strict definition: an insider is
+classifiable only if they **traded at least once in each of the prior three
+years.** Tenure is irrelevant; trading-pattern history is what matters.
+
+**Implications:**
+- First-time buyers (no prior open-market activity at this ticker) →
+  `years_of_history = 0` → **unclassified** → excluded from the opportunistic
+  count **regardless of seniority** (this is the Hannasch/AZO case — see OQ-1).
+- This is correct per CMP but **more restrictive than common retail
+  interpretations** of "insider buying signal."
+- Expect **most single-buy events to fail CMP classification** under strict
+  semantics; the opportunistic pool is dominated by **repeat-trading insiders.**
+
+**Live verification (post-fix), corrected expectation.** We no longer expect
+"Hannasch shows 4y." The observed and *correct* result on a bounded daily scan
+is that all surviving tickers' lone P-code buyers show **`0y` / `unclassified`**,
+because each was a single purchase with no prior trading history at that ticker,
+and CMP correctly excludes them. `years_of_history` now varies across insiders in
+proportion to their actual repeat-purchase history (0 for first-time buyers, ≥3
+for multi-year repeat traders), rather than the old constant `3`.
+
+**Scope note.** `years_of_history` is bounded above by the history fetch window
+(`cmp_history_years`, default 3 years) and is derived from **P-code purchases
+only** — so it reflects *purchase* history within that window, not full Form 4
+filing tenure. Measuring true multi-year tenure (e.g. for a >3-year routine
+check) would require widening `EdgarClient.get_insider_history` beyond 3 years
+and scanning all transaction codes; deferred as future work, not required for
+correct CMP classifiability.

@@ -1,7 +1,15 @@
-"""Unit tests for InsiderHistoryAgent — 3-year window correctness."""
+"""
+Unit tests for InsiderHistoryAgent.
+
+`years_of_history` is computed from the EARLIEST filed date in the insider's
+fetched Form 4 history (OQ-2 fix): floor((today - earliest_filed) / 365.25),
+or 0 when there are no prior filings. Fixtures use dates relative to today so
+the assertions are deterministic regardless of the calendar date the suite runs.
+"""
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -25,6 +33,10 @@ class _Collection:
 
     def __getitem__(self, i: int) -> Any:
         return self._items[i]
+
+
+def _days_ago(n: int) -> str:
+    return (date.today() - timedelta(days=n)).isoformat()
 
 
 def _make_filing_with_p(
@@ -68,7 +80,8 @@ def _make_filing_with_p(
 
 
 async def test_insider_history_returns_correct_cik() -> None:
-    filings = [_make_filing_with_p("2024-05-01", cik="99999", ticker="FCN")]
+    # Earliest filing ~3 years + 1 month ago → years_of_history == 3.
+    filings = [_make_filing_with_p(_days_ago(int(3 * 365.25) + 30), cik="99999", ticker="FCN")]
     collection = _Collection(filings)
 
     client = mock.AsyncMock()
@@ -84,10 +97,13 @@ async def test_insider_history_returns_correct_cik() -> None:
     assert result.transactions[0].cik == "99999"
 
 
-async def test_insider_history_multiple_filings() -> None:
+async def test_insider_history_multiple_filings_uses_earliest() -> None:
+    # Two filings; earliest is ~3.5 years old → years_of_history >= 3.
     filings = [
-        _make_filing_with_p("2024-01-10", cik="12345", ticker="FCN", shares=500.0, price=80.0),
-        _make_filing_with_p("2023-06-15", cik="12345", ticker="FCN", shares=1500.0, price=70.0),
+        _make_filing_with_p(_days_ago(400), cik="12345", ticker="FCN", shares=500.0, price=80.0),
+        _make_filing_with_p(
+            _days_ago(int(3 * 365.25) + 90), cik="12345", ticker="FCN", shares=1500.0, price=70.0
+        ),
     ]
     collection = _Collection(filings)
 
@@ -98,9 +114,10 @@ async def test_insider_history_multiple_filings() -> None:
 
     result = await agent.fetch(cik="12345", years=3)
     assert len(result.transactions) == 2
+    assert result.years_of_history >= 3  # driven by the OLDEST filing
 
 
-async def test_insider_history_empty_filings() -> None:
+async def test_insider_history_empty_filings_is_zero_years() -> None:
     collection = _Collection([])
 
     client = mock.AsyncMock()
@@ -111,7 +128,36 @@ async def test_insider_history_empty_filings() -> None:
 
     result = await agent.fetch(cik="00000", years=3)
     assert result.transactions == []
-    assert result.years_of_history == 3
+    assert result.years_of_history == 0  # no filings → no measured history
+
+
+async def test_years_of_history_six_months_returns_zero() -> None:
+    """An insider with only ~6 months of Form 4 history → years_of_history == 0."""
+    filings = [_make_filing_with_p(_days_ago(183), cik="55555", ticker="FCN")]
+    collection = _Collection(filings)
+
+    client = mock.AsyncMock()
+    client.get_insider_history = mock.AsyncMock(return_value=collection)
+
+    agent = InsiderHistoryAgent(client=client)
+    result = await agent.fetch(cik="55555", years=3)
+    assert result.years_of_history == 0
+
+
+async def test_years_of_history_four_years_returns_four() -> None:
+    """An insider whose earliest filing is 4+ years old → years_of_history >= 4."""
+    filings = [
+        _make_filing_with_p(_days_ago(int(4 * 365.25) + 15), cik="44444", ticker="FCN"),
+        _make_filing_with_p(_days_ago(200), cik="44444", ticker="FCN"),  # a recent one too
+    ]
+    collection = _Collection(filings)
+
+    client = mock.AsyncMock()
+    client.get_insider_history = mock.AsyncMock(return_value=collection)
+
+    agent = InsiderHistoryAgent(client=client)
+    result = await agent.fetch(cik="44444", years=3)
+    assert result.years_of_history >= 4
 
 
 async def test_insider_history_client_error_raises() -> None:
@@ -126,8 +172,8 @@ async def test_insider_history_client_error_raises() -> None:
 
 
 async def test_insider_history_skips_none_ownership() -> None:
-    """Filing where obj() returns None should be skipped."""
-    filing = SimpleNamespace(filed="2024-01-01")
+    """Filing where obj() returns None should be skipped → no measured history."""
+    filing = SimpleNamespace(filed=_days_ago(400))
     filing.obj = lambda: None  # type: ignore[assignment]
     collection = _Collection([filing])
 
@@ -137,11 +183,12 @@ async def test_insider_history_skips_none_ownership() -> None:
 
     result = await agent.fetch(cik="22222", years=3)
     assert result.transactions == []
+    assert result.years_of_history == 0
 
 
 async def test_insider_history_skips_bad_filing_obj() -> None:
-    """Filing where obj() raises should be skipped."""
-    filing = SimpleNamespace(filed="2024-01-01")
+    """Filing where obj() raises should be skipped → no measured history."""
+    filing = SimpleNamespace(filed=_days_ago(400))
     filing.obj = mock.MagicMock(side_effect=Exception("parse error"))  # type: ignore[assignment]
     collection = _Collection([filing])
 
@@ -151,3 +198,4 @@ async def test_insider_history_skips_bad_filing_obj() -> None:
 
     result = await agent.fetch(cik="33333", years=3)
     assert result.transactions == []
+    assert result.years_of_history == 0

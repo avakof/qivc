@@ -166,3 +166,16 @@ def test_insufficient_years_is_unclassified(years: int) -> None:
     candidate_txn = _txn(cik, date(2026, 5, 15))
     history = _history(cik, [], years=years)
     assert classify(candidate_txn, history) == "unclassified"
+
+
+def test_insider_with_six_months_history_is_unclassified() -> None:
+    """
+    An insider with only ~6 months of EDGAR history (years_of_history=0 after the
+    OQ-2 fix) must be UNCLASSIFIED, not opportunistic — the safety fallback.
+    """
+    cik = "60606"
+    candidate_txn = _txn(cik, date(2026, 5, 15))
+    # Even with a recent prior trade, <3 years of measured history → unclassified.
+    prior = [_txn(cik, date(2026, 1, 10))]
+    history = _history(cik, prior, years=0)
+    assert classify(candidate_txn, history) == "unclassified"

@@ -51,11 +51,17 @@ class InsiderHistoryAgent(DataAgent[InsiderHistory]):
                 except Exception as exc:
                     log.debug("Skipping filing %d for cik=%s: %s", i, cik, exc)
 
-        today = date.today()
-        actual_years = min(years, max(1, today.year - (today.year - years)))
+        # Measure history depth from the EARLIEST filing actually observed
+        # (OQ-2 fix). No prior filings → 0 years, so the CMP classifier's
+        # `years_of_history < 3 → unclassified` safety fallback works as intended.
+        if transactions:
+            earliest_filed = min(t.filed_date for t in transactions)
+            years_of_history = int((date.today() - earliest_filed).days // 365.25)
+        else:
+            years_of_history = 0
 
         return InsiderHistory(
             cik=cik,
             transactions=transactions,
-            years_of_history=actual_years,
+            years_of_history=years_of_history,
         )
