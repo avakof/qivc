@@ -101,6 +101,13 @@ years.** Tenure is irrelevant; trading-pattern history is what matters.
 - Expect **most single-buy events to fail CMP classification** under strict
   semantics; the opportunistic pool is dominated by **repeat-trading insiders.**
 
+**Implementation note:** `years_of_history` measures earliest **P-code (purchase)**
+filing only, not earliest open-market (P + S) filing. This is more conservative
+than strict CMP, which uses **both P and S** transactions in classification. For
+QIVC (long-only, purchase-signal-driven), counting only P is appropriate but
+deviates from CMP literally. An insider who sells regularly but buys rarely will
+be unclassifiable under our implementation even if CMP would classify them.
+
 **Live verification (post-fix), corrected expectation.** We no longer expect
 "Hannasch shows 4y." The observed and *correct* result on a bounded daily scan
 is that all surviving tickers' lone P-code buyers show **`0y` / `unclassified`**,
