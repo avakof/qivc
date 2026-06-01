@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from qivc.storage.db import get_connection
 
@@ -140,6 +140,24 @@ def get_filter_results(db_path: str, run_id: str) -> list[dict[str, object]]:
         "reason",
     ]
     return [dict(zip(cols, row, strict=False)) for row in result]
+
+
+def derive_run_status(db_path: str, run_id: str) -> Literal["completed", "errored", "unknown"]:
+    """
+    Derive run status from run_audit logs (no status column is persisted).
+      - "errored":   any node logged an ERROR summary
+      - "completed": apply_synthesis logged a non-error summary
+      - "unknown":   neither condition met (e.g. process killed mid-run, or no run)
+    """
+    rows = get_run_audit(db_path, run_id)
+    if any(str(r["result_summary"]).startswith("ERROR") for r in rows):
+        return "errored"
+    if any(
+        r["node_name"] == "apply_synthesis" and not str(r["result_summary"]).startswith("ERROR")
+        for r in rows
+    ):
+        return "completed"
+    return "unknown"
 
 
 def get_latest_run_id(db_path: str) -> str | None:

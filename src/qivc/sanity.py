@@ -47,27 +47,6 @@ class RunSnapshot:
     status: str  # "completed" | "errored" | "unknown"
 
 
-def derive_run_status(db_path: str, run_id: str) -> str:
-    """
-    Derive a run's status from run_audit (no separate status column is persisted):
-      - "completed" if apply_synthesis logged a non-error summary,
-      - "errored"   if any node logged an ERROR summary,
-      - "unknown"   otherwise (e.g. process killed before the final node).
-    """
-    rows = repo.get_run_audit(db_path, run_id)
-    if not rows:
-        return "unknown"
-    synth_ok = any(
-        r["node_name"] == "apply_synthesis" and not str(r["result_summary"]).startswith("ERROR")
-        for r in rows
-    )
-    if synth_ok:
-        return "completed"
-    if any(str(r["result_summary"]).startswith("ERROR") for r in rows):
-        return "errored"
-    return "unknown"
-
-
 def load_run(db_path: str, run_id: str | None = None) -> RunSnapshot | None:
     """Load a RunSnapshot (default: most recent run). None if the DB has no runs."""
     if run_id is None:
@@ -78,7 +57,7 @@ def load_run(db_path: str, run_id: str | None = None) -> RunSnapshot | None:
     return RunSnapshot(
         run_id=run_id,
         candidates=sorted(candidate_gates.keys()),
-        status=derive_run_status(db_path, run_id),
+        status=repo.derive_run_status(db_path, run_id),
     )
 
 
@@ -220,6 +199,28 @@ def _check_has_form4_buyer(
     )
 
 
+def _check_no_silent_failure(run_id: str, status: str, candidate_count: int) -> SanityResult:
+    """
+    A zero-candidate result is only legitimate if the run completed. Zero
+    candidates paired with status != 'completed' is a silent-failure pattern
+    (the run errored or died before finishing, masquerading as "no matches").
+    """
+    violated = candidate_count == 0 and status != "completed"
+    if violated:
+        detail = (
+            f"run ended with status={status} and zero candidates — "
+            f"review run_audit before relying on this output"
+        )
+    else:
+        detail = "completed runs may legitimately have zero candidates"
+    return SanityResult(
+        name="no_silent_failure",
+        passed=not violated,
+        detail=detail,
+        offenders=[run_id] if violated else [],
+    )
+
+
 def check_run(db_path: str, run_id: str | None = None) -> SanityReport:
     """
     Run all dossier invariants against a run (default: most recent).
@@ -232,12 +233,19 @@ def check_run(db_path: str, run_id: str | None = None) -> SanityReport:
         return SanityReport(run_id=None, candidate_count=0, results=_empty_results())
 
     candidate_gates, classifications = _load(db_path, run_id)
+    audit_rows = repo.get_run_audit(db_path, run_id)
+    if not audit_rows and not candidate_gates:
+        # The run_id has no data — treat as a non-existent run, not a failure.
+        return SanityReport(run_id=run_id, candidate_count=0, results=_empty_results())
+
+    status = repo.derive_run_status(db_path, run_id)
     results = [
         _check_no_microcap(candidate_gates),
         _check_positive_earnings(candidate_gates),
         _check_opportunistic_clusters(candidate_gates, classifications),
         _check_all_required_gates_true(candidate_gates),
         _check_has_form4_buyer(candidate_gates, classifications),
+        _check_no_silent_failure(run_id, status, len(candidate_gates)),
     ]
     return SanityReport(
         run_id=run_id,
@@ -253,4 +261,5 @@ def _empty_results() -> list[SanityResult]:
         SanityResult(name="opportunistic_clusters", passed=True, detail="no candidates"),
         SanityResult(name="all_required_gates_true", passed=True, detail="no candidates"),
         SanityResult(name="has_form4_buyer", passed=True, detail="no candidates"),
+        SanityResult(name="no_silent_failure", passed=True, detail="no run data"),
     ]

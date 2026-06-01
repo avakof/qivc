@@ -223,7 +223,13 @@ def _append_sanity_to_report(db_path: str, run_id: str, report_path: Path) -> No
     except FileNotFoundError:
         return
     if not report.all_passed:
-        existing = "> ⚠️ SANITY CHECK FAILED — see appendix for details\n\n" + existing
+        # Use the silent-failure message specifically when that invariant tripped.
+        silent = report.get("no_silent_failure")
+        if not silent.passed:
+            header = f"> ⚠️ SANITY CHECK FAILED — {silent.detail}\n\n"
+        else:
+            header = "> ⚠️ SANITY CHECK FAILED — see appendix for details\n\n"
+        existing = header + existing
     report_path.write_text(existing + "\n".join(lines) + "\n", encoding="utf-8")
 
 

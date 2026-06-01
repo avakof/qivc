@@ -363,6 +363,58 @@ def test_sanity_command_fails_on_microcap(patched_env: Path) -> None:
     assert "GPUS" in result.output
 
 
+def test_report_gets_silent_failure_warning(patched_env: Path) -> None:
+    """report.md gets the ⚠️ silent-failure header for an errored, zero-candidate run."""
+    from datetime import datetime
+
+    from qivc.storage import repositories as repo
+
+    db = str(patched_env / "qivc.db")
+    repo.log_node_execution(
+        db,
+        "errored-run",
+        "regime_check",
+        datetime(2026, 6, 1),
+        datetime(2026, 6, 1),
+        1.0,
+        "ERROR: Market regime is risk-off.",
+    )
+    report_path = patched_env / "report.md"
+    report_path.write_text("# QIVC Screen\n\nbody\n", encoding="utf-8")
+
+    cli_main._append_sanity_to_report(db, "errored-run", report_path)
+
+    md = report_path.read_text()
+    assert md.startswith("> ⚠️ SANITY CHECK FAILED")
+    assert "status=errored" in md
+    assert "review run_audit" in md
+    assert "Appendix: Sanity Checks" in md
+
+
+def test_sanity_command_fails_on_silent_failure(patched_env: Path) -> None:
+    """`qivc sanity` exits 1 and names the run when status!=completed AND no candidates."""
+    from datetime import datetime
+
+    from qivc.storage import repositories as repo
+
+    db = str(patched_env / "qivc.db")
+    # Aborted run: an ERROR node, no apply_synthesis, zero candidates.
+    repo.log_node_execution(
+        db,
+        "errored-run",
+        "regime_check",
+        datetime(2026, 6, 1),
+        datetime(2026, 6, 1),
+        1.0,
+        "ERROR: Market regime is risk-off.",
+    )
+
+    result = runner.invoke(cli_main.app, ["sanity", "--run-id", "errored-run"])
+    assert result.exit_code == 1
+    assert "no_silent_failure" in result.output
+    assert "errored-run" in result.output
+
+
 def test_audit_shows_insider_classifications(patched_env: Path) -> None:
     """`qivc audit` surfaces per-insider CMP labels alongside the gate breakdown."""
     from qivc.schemas import FilterResult, RejectedCandidate

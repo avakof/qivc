@@ -305,7 +305,7 @@ def latest_run(tmp_path: Path) -> Any:
     """
     A RunSnapshot mirroring the current production run 5de53ecf: completed with
     zero candidates. Seeded into a tmp DuckDB so the check is deterministic
-    (status is derived from the run_audit `apply_synthesis` row).
+    (status is derived by the shared repositories.derive_run_status).
     """
     from qivc.sanity import load_run
 
@@ -314,10 +314,24 @@ def latest_run(tmp_path: Path) -> Any:
     return load_run(db, "completed-empty")
 
 
+def _audit_only(db_path: str, run_id: str, node: str, summary: str) -> None:
+    """Seed a single run_audit row (no candidates) for status-derivation tests."""
+    from datetime import datetime
+
+    from qivc.storage import repositories as repo
+
+    repo.log_node_execution(
+        db_path, run_id, node, datetime(2026, 6, 1), datetime(2026, 6, 1), 1.0, summary
+    )
+
+
 def test_run_status_consistent_with_candidates(latest_run: Any) -> None:
     """An empty candidates list is valid if the run completed successfully and
     regime permitted entries. An empty list paired with run.status != 'completed'
-    is a silent-failure pattern that must surface as a sanity violation."""
+    is a silent-failure pattern that must surface as a sanity violation.
+
+    (`latest_run.status` is produced by the shared repositories.derive_run_status
+    via load_run.)"""
 
     if not latest_run.candidates:
         assert latest_run.status == "completed", (
@@ -327,34 +341,39 @@ def test_run_status_consistent_with_candidates(latest_run: Any) -> None:
         )
 
 
-def test_errored_run_with_zero_candidates_is_flagged(tmp_path: Path) -> None:
-    """Companion: an errored run with zero candidates trips the silent-failure check."""
-    from datetime import datetime
+def test_completed_zero_candidate_run_passes_silent_failure_check(tmp_path: Path) -> None:
+    """A completed run with zero candidates is legitimate → invariant PASSES."""
+    db = str(tmp_path / "qivc.db")
+    _seed(db, "completed-empty", [], [])  # apply_synthesis logged → completed
+    res = check_run(db, "completed-empty").get("no_silent_failure")
+    assert res.passed is True
+    assert res.offenders == []
 
-    from qivc.sanity import load_run
-    from qivc.storage import repositories as repo
+
+def test_errored_run_with_zero_candidates_is_flagged(tmp_path: Path) -> None:
+    """An errored run with zero candidates trips the silent-failure invariant."""
+    from qivc.storage.repositories import derive_run_status
 
     db = str(tmp_path / "qivc.db")
     # An aborted run: regime_check errored, apply_synthesis never ran.
-    repo.log_node_execution(
-        db,
-        "errored-empty",
-        "regime_check",
-        datetime(2026, 6, 1),
-        datetime(2026, 6, 1),
-        1.0,
-        "ERROR: Market regime is risk-off.",
-    )
-    snap = load_run(db, "errored-empty")
-    assert snap is not None
-    assert snap.candidates == []
-    assert snap.status == "errored"
+    _audit_only(db, "errored-empty", "regime_check", "ERROR: Market regime is risk-off.")
+    assert derive_run_status(db, "errored-empty") == "errored"
 
-    # The same invariant that test_run_status_consistent_with_candidates asserts
-    # must FAIL here (zero candidates + status != completed).
-    with pytest.raises(AssertionError):
-        if not snap.candidates:
-            assert snap.status == "completed", (
-                f"Run {snap.run_id} has zero candidates AND status={snap.status} "
-                f"— silent failure pattern."
-            )
+    res = check_run(db, "errored-empty").get("no_silent_failure")
+    assert res.passed is False
+    assert "errored-empty" in res.offenders
+
+
+def test_unknown_status_with_zero_candidates_is_flagged(tmp_path: Path) -> None:
+    """A run that started but never reached apply_synthesis (status 'unknown') and
+    produced zero candidates is also a silent failure."""
+    from qivc.storage.repositories import derive_run_status
+
+    db = str(tmp_path / "qivc.db")
+    # ingest ran ok, then the process died before apply_synthesis → unknown.
+    _audit_only(db, "killed-empty", "ingest_form4", "{'transactions_by_ticker': 'dict'}")
+    assert derive_run_status(db, "killed-empty") == "unknown"
+
+    res = check_run(db, "killed-empty").get("no_silent_failure")
+    assert res.passed is False
+    assert "killed-empty" in res.offenders
