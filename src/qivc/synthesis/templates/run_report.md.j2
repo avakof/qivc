@@ -1,0 +1,40 @@
+> {{ disclaimer }}
+
+# QIVC v2.0 Screen — {{ generated_at }}
+
+**Regime:** {{ regime.regime }} (VIX 60d SMA: {{ "%.1f"|format(regime.vix_60d_sma) }}, Credit spread: {{ "%.0f"|format(regime.credit_spread_bps) }} bps, Yield curve: {{ "%.0f"|format(regime.yield_curve_bps) }} bps)
+**Candidates surviving all gates:** {{ candidates|length }}
+**Candidates rejected:** {{ rejected|length }} (see appendix)
+**Universe screened:** {{ universe_size }}
+**Run ID:** {{ run_id }}
+**Run duration:** {{ "%.2f"|format(run_duration_seconds) }}s
+
+---
+{% for c in candidates %}
+## Candidate {{ loop.index }}: {{ c.ticker }}
+
+| Gate | Result | Detail |
+|---|---|---|
+{% for fr in c.filter_results -%}
+| {{ fr.filter_name }} | {{ "PASS" if fr.passed else ("UNVERIFIABLE" if fr.passed is none else "FAIL") }} | {{ fr.reason }} |
+{% endfor %}
+**Cluster:** {{ c.cluster.transactions|length }} transaction(s), track {{ c.cluster.track }}, {{ c.cluster.window_start }}–{{ c.cluster.window_end }}, ${{ "{:,.0f}".format(c.cluster.total_value_usd) }} aggregate
+**Indicative sizing:** {{ "%.1f"|format(c.indicative_size_pct * 100) }}% (conviction score {{ c.conviction_score }})
+**Conviction breakdown:** {{ c.conviction_breakdown.items()|map('join', '=')|join(', ') }}
+{% if c.flags %}
+**Flags:** {{ c.flags|join("; ") }}
+{% endif %}
+
+---
+{% endfor %}
+## Appendix: Rejected Candidates
+
+{% if rejected %}
+| Ticker | Failed Gate | Reason |
+|---|---|---|
+{% for r in rejected -%}
+| {{ r.ticker }} | {{ r.failed_gate }} | {{ r.reason }} |
+{% endfor %}
+{% else %}
+_No candidates rejected._
+{% endif %}

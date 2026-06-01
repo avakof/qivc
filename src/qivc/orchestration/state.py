@@ -46,6 +46,7 @@ class PipelineState(TypedDict):
     tickers: list[str]  # initial ticker list (may be empty → discover from Form 4)
     lookback_days: int
     force: bool  # if True, bypass risk-off block
+    single_ticker_mode: bool  # if True, skip Form 4 ingest; synthesise a size-1 cluster
 
     # --- regime (global) ---
     regime: MarketRegime | None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -211,3 +211,17 @@ class RejectedCandidate(BaseModel):
     failed_gate: str  # name of the filter that failed
     reason: str
     filter_results: list[FilterResult]
+
+
+class RunReport(BaseModel):
+    """Machine-readable mirror of the Markdown dossier (Phase 5)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    run_id: str
+    generated_at: datetime
+    regime: MarketRegime
+    candidates: list[Candidate]
+    rejected: list[RejectedCandidate]
+    universe_size: int  # total tickers screened
+    run_duration_seconds: float

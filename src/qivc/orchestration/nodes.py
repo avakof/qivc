@@ -59,6 +59,28 @@ _TARGET_POSITION_USD = 1_000_000.0
 _GPA_INDUSTRY_MEDIAN = 0.25
 
 
+def _synthetic_transaction(ticker: str) -> InsiderTransaction:
+    """Placeholder size-1 transaction for single-ticker investigation mode."""
+    from datetime import date
+
+    today = date.today()
+    return InsiderTransaction(
+        cik=f"SYNTHETIC-{ticker}",
+        name="(single-ticker mode placeholder)",
+        title="N/A",
+        ticker=ticker,
+        shares=0.0,
+        price=0.0,
+        value_usd=0.0,
+        transaction_date=today,
+        filed_date=today,
+        transaction_code="P",
+        is_director=False,
+        is_officer=False,
+        is_ten_percent_owner=False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Audit helper — wraps a coroutine node with DuckDB logging
 # ---------------------------------------------------------------------------
@@ -151,13 +173,18 @@ def make_nodes(agents: Any, settings: Any) -> dict[str, Any]:
     async def ingest_form4(state: PipelineState) -> dict[str, Any]:
         tickers: list[str] = state.get("tickers", [])
         lookback_days: int = state.get("lookback_days", 14)
+        single_ticker_mode: bool = state.get("single_ticker_mode", False)
 
-        if tickers:
-            # Single-ticker or explicit list: fetch per-ticker
+        if single_ticker_mode:
+            # Skip Form 4 ingest: synthesise one placeholder transaction per ticker
+            # so downstream fetch nodes process it and a size-1 cluster is created.
+            txns_by_ticker = {t: [_synthetic_transaction(t)] for t in tickers}
+        elif tickers:
+            # Explicit ticker list: fetch per-ticker
             all_txns: list[list[InsiderTransaction]] = await asyncio.gather(
                 *[agents.form4.fetch(ticker=t, lookback_days=lookback_days) for t in tickers]
             )
-            txns_by_ticker: dict[str, list[InsiderTransaction]] = {}
+            txns_by_ticker = {}
             for ticker, txns in zip(tickers, all_txns, strict=False):
                 if txns:
                     txns_by_ticker[ticker] = txns
@@ -272,10 +299,29 @@ def make_nodes(agents: Any, settings: Any) -> dict[str, Any]:
 
     @audit
     async def apply_cluster_detection(state: PipelineState) -> dict[str, Any]:
+        txns_by_ticker = state["transactions_by_ticker"]
+
+        # Single-ticker mode: synthesise one size-1 cluster per ticker so the
+        # remaining quality/valuation/liquidity gates can run on the ticker.
+        if state.get("single_ticker_mode", False):
+            clusters = [
+                Cluster(
+                    ticker=ticker,
+                    transactions=txns,
+                    track="B",
+                    window_start=txns[0].transaction_date,
+                    window_end=txns[0].transaction_date,
+                    total_value_usd=sum(t.value_usd for t in txns),
+                )
+                for ticker, txns in txns_by_ticker.items()
+                if txns
+            ]
+            return {"clusters": clusters}
+
         histories = state.get("insider_histories", {})
 
         # Classify every transaction by CIK using CMP
-        all_txns = [t for txns in state["transactions_by_ticker"].values() for t in txns]
+        all_txns = [t for txns in txns_by_ticker.values() for t in txns]
         classifications: dict[str, str] = {}
         for txn in all_txns:
             cik = txn.cik

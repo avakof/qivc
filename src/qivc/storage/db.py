@@ -20,6 +20,19 @@ _MIGRATIONS: list[str] = [
         result_summary VARCHAR
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS filter_results (
+        run_id       VARCHAR  NOT NULL,
+        ticker       VARCHAR  NOT NULL,
+        status       VARCHAR  NOT NULL,   -- CANDIDATE | REJECTED
+        failed_gate  VARCHAR,             -- NULL for candidates
+        filter_name  VARCHAR  NOT NULL,
+        passed       BOOLEAN,             -- NULL = UNVERIFIABLE
+        metric_value DOUBLE,
+        threshold    DOUBLE,
+        reason       VARCHAR  NOT NULL
+    )
+    """,
 ]
 
 
