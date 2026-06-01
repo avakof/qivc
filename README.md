@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/avakof/qivc/actions/workflows/ci.yml/badge.svg)](https://github.com/avakof/qivc/actions/workflows/ci.yml)
 
-QIVC v2.0 is a Python-based long-only equity research screening system that surfaces stock candidates by applying a sequential battery of quantitative filters — Piotroski F-Score, gross profitability, sector-appropriate valuation, analyst EPS revisions, insider conviction (Cohen-Malloy-Pomorski classification), liquidity, short-interest direction, and macro regime — and produces fully-attributed dossiers in Markdown and JSON for human review.
+QIVC v2.0 — the Quality-Insider Value Composite — is a Python-based long-only equity research screening system. It surfaces stock candidates that combine **quality** (Piotroski F-Score, gross profitability), **value** (sector-appropriate valuation), and **opportunistic insider conviction** (clusters of open-market purchases, classified per Cohen-Malloy-Pomorski 2012), gated further by analyst EPS revisions, liquidity, short-interest direction, and macro regime. It produces fully-attributed dossiers in Markdown and JSON for human review.
+
+Design decisions, deviations from the brief, and open research questions live in **[STRATEGY_NOTES.md](STRATEGY_NOTES.md)**; the full specification is **[PROJECT_BRIEF.md](PROJECT_BRIEF.md)**.
 
 > **Disclaimer:** This is research output, not investment advice. No personal recommendation is intended. Verify all signals independently before any investment decision.
 
@@ -32,13 +34,19 @@ uv run python scripts/bootstrap_bulk_data.py
 # Takes 30-60 minutes; downloads SEC bulk Form 4 dumps for the prior 3 years
 ```
 
-### Daily run
+### Daily workflow
 
 ```bash
 uv run qivc screen
 ```
 
-Output is written to `data/runs/<run_id>/report.md` and `report.json`.
+1. `qivc screen` runs the full pipeline and writes `data/runs/<run_id>/report.md`
+   and `report.json`. Sanity-check results are folded into the report; a
+   `⚠️ SANITY CHECK FAILED` header appears if anything looks anomalous.
+2. **Read `report.md`** — surviving candidates with per-gate attribution up top,
+   rejected names in the appendix.
+3. **Review the names** yourself before acting — this is research output, not a
+   recommendation (see disclaimer).
 
 ### Check the current regime
 
@@ -62,7 +70,32 @@ in isolation.
 uv run qivc audit <run_id>
 ```
 
-Prints the per-node timings and the per-ticker gate breakdown recorded in DuckDB.
+Prints the per-node timings, the per-ticker gate breakdown, and per-insider CMP
+classifications recorded in DuckDB.
+
+### Sanity-check a run
+
+```bash
+uv run qivc sanity [--run-id <run_id>]   # default: most recent run
+```
+
+Verifies dossier invariants on the run's survivors (market cap ≥ $300M, positive
+ROA, opportunistic-only clusters, all required gates passed, ≥1 Form 4 buyer) and
+flags the silent-failure pattern (zero candidates from a non-completed run). Exits
+non-zero and names offenders on any violation.
+
+### Backtest (point-in-time)
+
+```bash
+uv run qivc backtest --start 2024-01-01 --end 2024-06-30 \
+  --freq M --universe AAPL,MSFT,JNJ
+```
+
+Walks rebalance dates using only filing-date point-in-time data, simulates with
+vectorbt, and writes `equity_curve.csv`, `metrics.json`, and `trades.csv` to
+`data/backtests/<id>/`. See [STRATEGY_NOTES.md](STRATEGY_NOTES.md) and
+[PHASE7_NOTES.md](PHASE7_NOTES.md) for the documented limitations (survivor bias,
+sector-median look-ahead, quality-core screen subset).
 
 ### Weekly maintenance
 

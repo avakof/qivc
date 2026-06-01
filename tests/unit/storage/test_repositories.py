@@ -111,6 +111,70 @@ def test_log_node_execution_bad_path_is_swallowed() -> None:
     repo.log_node_execution("/nonexistent\x00/bad.db", "n", "node", now, now, 1.0, "x")
 
 
+def test_get_latest_run_id_empty_then_populated(tmp_path: Path) -> None:
+    db = str(tmp_path / "qivc.db")
+    # Empty DB → None.
+    assert repo.get_latest_run_id(db) is None
+    # After two runs, the most recent (by entered_at) is returned.
+    repo.log_node_execution(
+        db,
+        "run-old",
+        "regime_check",
+        datetime(2026, 5, 1, 9, 0),
+        datetime(2026, 5, 1, 9, 0),
+        1.0,
+        "ok",
+    )
+    repo.log_node_execution(
+        db,
+        "run-new",
+        "regime_check",
+        datetime(2026, 5, 2, 9, 0),
+        datetime(2026, 5, 2, 9, 0),
+        1.0,
+        "ok",
+    )
+    assert repo.get_latest_run_id(db) == "run-new"
+
+
+def test_get_latest_run_id_bad_path_returns_none() -> None:
+    assert repo.get_latest_run_id("/nonexistent\x00/bad.db") is None
+
+
+def test_save_filter_results_bad_path_is_swallowed() -> None:
+    """save_filter_results must not raise on a bad DB path (best-effort)."""
+    candidate = Candidate(
+        ticker="UNH",
+        cluster=_cluster(),
+        filter_results=[
+            FilterResult(
+                filter_name="f_score", passed=True, metric_value=8.0, threshold=7.0, reason="ok"
+            ),
+        ],
+    )
+    repo.save_filter_results("/nonexistent\x00/bad.db", "r", [candidate], [])
+
+
+def test_save_insider_classifications_bad_path_is_swallowed() -> None:
+    """save_insider_classifications must not raise on a bad DB path (best-effort)."""
+    repo.save_insider_classifications(
+        "/nonexistent\x00/bad.db",
+        "r",
+        [
+            {
+                "ticker": "UNH",
+                "cik": "1",
+                "name": "X",
+                "classification": "opportunistic",
+                "years_history": 3,
+                "n_purchases": 1,
+                "total_value_usd": 1.0,
+                "is_officer": True,
+            }
+        ],
+    )
+
+
 def test_save_and_get_insider_classifications(tmp_path: Path) -> None:
     db = str(tmp_path / "qivc.db")
     records: list[dict[str, object]] = [
