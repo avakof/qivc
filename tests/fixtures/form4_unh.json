@@ -1,0 +1,152 @@
+[
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "UNH",
+      "name": "UNITEDHEALTH GROUP INC",
+      "cik": "0000731766"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0002067754",
+        "name": "Patrick Hugh Conway",
+        "officer_title": "Chief Executive Officer, Optum",
+        "is_director": false,
+        "is_officer": true,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "S",
+        "Date": "2026-04-23",
+        "Shares": 800.0,
+        "Price": 355.0,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 17804.991
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "UNH",
+      "name": "UNITEDHEALTH GROUP INC",
+      "cik": "0000731766"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001201723",
+        "name": "Michele J Hooper",
+        "officer_title": "",
+        "is_director": true,
+        "is_officer": false,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "A",
+        "Date": "2026-04-01",
+        "Shares": 206.0,
+        "Price": 0.0,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 41792.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "UNH",
+      "name": "UNITEDHEALTH GROUP INC",
+      "cik": "0000731766"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001731814",
+        "name": "Frederick William Mcnabb III",
+        "officer_title": "",
+        "is_director": true,
+        "is_officer": false,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "A",
+        "Date": "2026-04-01",
+        "Shares": 388.0,
+        "Price": 0.0,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 15162.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "UNH",
+      "name": "UNITEDHEALTH GROUP INC",
+      "cik": "0000731766"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001554088",
+        "name": "Charles D. Baker",
+        "officer_title": "",
+        "is_director": true,
+        "is_officer": false,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "A",
+        "Date": "2026-04-01",
+        "Shares": 343.0,
+        "Price": 0.0,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 2163.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "UNH",
+      "name": "UNITEDHEALTH GROUP INC",
+      "cik": "0000731766"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001719411",
+        "name": "Kristen Gil",
+        "officer_title": "",
+        "is_director": true,
+        "is_officer": false,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "A",
+        "Date": "2026-04-01",
+        "Shares": 320.0,
+        "Price": 0.0,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 2403.0
+      }
+    ]
+  }
+]

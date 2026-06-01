@@ -1,0 +1,170 @@
+[
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "FCN",
+      "name": "FTI CONSULTING, INC",
+      "cik": "0000887936"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001617579",
+        "name": "Paul Alderman Linton",
+        "officer_title": "Chief Strategy/Transf. Officer",
+        "is_director": false,
+        "is_officer": true,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "P",
+        "Date": "2026-05-13",
+        "Shares": 2400.0,
+        "Price": 144.04,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 92824.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "FCN",
+      "name": "FTI CONSULTING, INC",
+      "cik": "0000887936"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001597949",
+        "name": "Steven Henry Gunby",
+        "officer_title": "CEO, Chairman and President",
+        "is_director": true,
+        "is_officer": true,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "P",
+        "Date": "2026-05-13",
+        "Shares": 6658.0,
+        "Price": 143.87,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 323642.0
+      },
+      {
+        "Code": "P",
+        "Date": "2026-05-13",
+        "Shares": 3342.0,
+        "Price": 144.77,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 326984.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "FCN",
+      "name": "FTI CONSULTING, INC",
+      "cik": "0000887936"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001670483",
+        "name": "Eun Nam",
+        "officer_title": "Chief Financial Officer",
+        "is_director": false,
+        "is_officer": true,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "P",
+        "Date": "2026-05-13",
+        "Shares": 2000.0,
+        "Price": 144.59,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 21592.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "FCN",
+      "name": "FTI CONSULTING, INC",
+      "cik": "0000887936"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001597949",
+        "name": "Steven Henry Gunby",
+        "officer_title": "CEO, Chairman and President",
+        "is_director": true,
+        "is_officer": true,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "M",
+        "Date": "2026-05-06",
+        "Shares": 2477.0,
+        "Price": 40.36,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 316984.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "FCN",
+      "name": "FTI CONSULTING, INC",
+      "cik": "0000887936"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001670483",
+        "name": "Eun Nam",
+        "officer_title": "Chief Financial Officer",
+        "is_director": false,
+        "is_officer": true,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "A",
+        "Date": "2026-05-01",
+        "Shares": 2333.0,
+        "Price": 0.0,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 2333.0
+      },
+      {
+        "Code": "A",
+        "Date": "2026-05-01",
+        "Shares": 17259.0,
+        "Price": 0.0,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 19592.0
+      }
+    ]
+  }
+]

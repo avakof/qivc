@@ -1,0 +1,17 @@
+{
+  "ticker": "FCN",
+  "net_income": 270871000.0,
+  "total_assets": 3490528000.0,
+  "operating_cash_flow": 152132000.0,
+  "revenue": 3788857000.0,
+  "operating_income": 389077000.0,
+  "shares_outstanding_basic": null,
+  "prior": {
+    "net_income": 280088000.0,
+    "total_assets": 3596830000.0,
+    "operating_cash_flow": 395097000.0,
+    "revenue": 3698652000.0,
+    "operating_income": 347362000.0,
+    "shares_outstanding_basic": null
+  }
+}

@@ -1,0 +1,284 @@
+[
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "TSLA",
+      "name": "Tesla, Inc.",
+      "cik": "0001318605"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001771340",
+        "name": "Vaibhav Taneja",
+        "officer_title": "Chief Financial Officer",
+        "is_director": false,
+        "is_officer": true,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "M",
+        "Date": "2026-05-13",
+        "Shares": 1000.0,
+        "Price": 18.44,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 19106.5
+      },
+      {
+        "Code": "M",
+        "Date": "2026-05-13",
+        "Shares": 2000.0,
+        "Price": 18.22,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 21106.5
+      },
+      {
+        "Code": "S",
+        "Date": "2026-05-13",
+        "Shares": 3000.0,
+        "Price": 450.0,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 18106.5
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "TSLA",
+      "name": "Tesla, Inc.",
+      "cik": "0001318605"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001331680",
+        "name": "Kathleen Wilson-Thompson",
+        "officer_title": "",
+        "is_director": true,
+        "is_officer": false,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "M",
+        "Date": "2026-04-30",
+        "Shares": 40948.0,
+        "Price": 14.99,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 74808.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 840.0,
+        "Price": 369.01,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 73968.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 1520.0,
+        "Price": 369.769,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 72448.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 1275.0,
+        "Price": 370.929,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 71173.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 1020.0,
+        "Price": 371.881,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 70153.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 619.0,
+        "Price": 372.819,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 69534.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 520.0,
+        "Price": 374.402,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 69014.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 280.0,
+        "Price": 375.149,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 68734.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 1081.0,
+        "Price": 376.689,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 67653.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 3003.0,
+        "Price": 377.487,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 64650.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 3480.0,
+        "Price": 378.573,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 61170.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 1760.0,
+        "Price": 379.427,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 59410.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 1755.0,
+        "Price": 380.756,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 57655.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 6896.0,
+        "Price": 381.607,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 50759.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 680.0,
+        "Price": 382.414,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 50079.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 1240.0,
+        "Price": 383.612,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 48839.0
+      },
+      {
+        "Code": "S",
+        "Date": "2026-04-30",
+        "Shares": 440.0,
+        "Price": 384.284,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 48399.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "TSLA",
+      "name": "Tesla, Inc.",
+      "cik": "0001318605"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001494730",
+        "name": "Musk Elon",
+        "officer_title": "CEO",
+        "is_director": true,
+        "is_officer": true,
+        "is_ten_pct_owner": true,
+        "is_company": true
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "D",
+        "Date": "2026-04-21",
+        "Shares": 96000000.0,
+        "Price": 0.0,
+        "AcquiredDisposed": "D",
+        "Security": "Common Stock",
+        "Remaining": 423743904.0
+      }
+    ]
+  },
+  {
+    "filed": "",
+    "issuer": {
+      "ticker": "TSLA",
+      "name": "Tesla, Inc.",
+      "cik": "0001318605"
+    },
+    "reporting_owners": [
+      {
+        "cik": "0001972928",
+        "name": "Xiaotong Zhu",
+        "officer_title": "SVP",
+        "is_director": false,
+        "is_officer": true,
+        "is_ten_pct_owner": false,
+        "is_company": false
+      }
+    ],
+    "non_derivative_transactions": [
+      {
+        "Code": "M",
+        "Date": "2026-03-31",
+        "Shares": 20000.0,
+        "Price": 20.57,
+        "AcquiredDisposed": "A",
+        "Security": "Common Stock",
+        "Remaining": 20000.0
+      }
+    ]
+  }
+]
