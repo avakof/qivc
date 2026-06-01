@@ -14,6 +14,10 @@ from qivc.schemas import InsiderTransaction
 log = logging.getLogger(__name__)
 
 _PURCHASE_CODE = "P"
+# Cap on filings parsed in a market-wide (no-ticker) scan. Form 4 volume is
+# ~1000s/day market-wide; a single API run parses a bounded slice. Production
+# should use the SEC bulk dumps (PROJECT_BRIEF §3.2) for full coverage.
+_GLOBAL_SCAN_LIMIT = 100
 
 
 def _parse_ownership(filing: Any, ownership: Any) -> list[InsiderTransaction]:
@@ -123,7 +127,18 @@ class Form4Agent(DataAgent[list[InsiderTransaction]]):
         if filings_obj is None:
             return results
 
-        for i in range(len(filings_obj)):
+        count = len(filings_obj)
+        if ticker is None:
+            # Market-wide scan: bound the number of filings parsed per run.
+            if len(filings_obj) > _GLOBAL_SCAN_LIMIT:
+                log.warning(
+                    "Global Form 4 scan capped: parsing %d of %d filings",
+                    _GLOBAL_SCAN_LIMIT,
+                    len(filings_obj),
+                )
+            count = min(count, _GLOBAL_SCAN_LIMIT)
+
+        for i in range(count):
             filing = filings_obj[i]
             try:
                 ownership = filing.obj()

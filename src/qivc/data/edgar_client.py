@@ -96,8 +96,14 @@ class EdgarClient:
         lookback_days: int = 14,
     ) -> Any:
         """
-        Return a filing collection for the last *lookback_days*.
-        Scoped to *ticker* if given, otherwise a global EFTS search (limit 100).
+        Return a Form 4 filing collection covering the last *lookback_days*
+        (by filing date).  Scoped to *ticker* if given; otherwise a market-wide
+        scan via the EDGAR quarterly index.
+
+        Note: the market-wide path uses the EDGAR API index, which is adequate
+        for a bounded daily window. Production should back this with the SEC
+        bulk Form 4 dumps (see PROJECT_BRIEF §3.2); the consuming agent caps the
+        number of filings parsed to keep a single run tractable.
         """
         end = date.today()
         start = end - timedelta(days=lookback_days)
@@ -106,13 +112,7 @@ class EdgarClient:
         if ticker:
             company = edgar.Company(ticker)
             return await self._run_with_retry(company.get_filings, form="4", date=date_range)
-        return await self._run_with_retry(
-            edgar.search_filings,
-            forms="4",
-            start_date=str(start),
-            end_date=str(end),
-            limit=100,
-        )
+        return await self._run_with_retry(edgar.get_filings, form="4", filing_date=date_range)
 
     async def get_insider_history(self, cik: str, years: int = 3) -> Any:
         """Return Form 4 filings for CIK over the last *years* years."""
