@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-9.0.3, pluggy-1.6.0 -- /Users/vakof/qivc/.venv/bin/python3
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: /Users/vakof/qivc
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.1.0, asyncio-1.4.0, hypothesis-6.155.1, anyio-4.13.0, langsmith-0.8.8
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 271 items / 267 deselected / 4 selected
+
+tests/live/test_live_smoke.py::test_edgar_user_agent_present PASSED      [ 25%]
+tests/live/test_live_smoke.py::test_edgar_rate_limit_compliance PASSED   [ 50%]
+tests/live/test_live_smoke.py::test_form4_recent_filings PASSED          [ 75%]
+tests/live/test_live_smoke.py::test_regime_agent_live PASSED             [100%]
+
+====================== 4 passed, 267 deselected in 7.30s =======================

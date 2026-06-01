@@ -94,3 +94,17 @@ def test_to_float_valid() -> None:
 
 def test_to_float_none_input() -> None:
     assert _to_float(None) is None
+
+
+async def test_valuation_source_name() -> None:
+    agent = ValuationAgent(client=mock.AsyncMock())
+    assert agent.source_name == "yfinance_valuation"
+
+
+async def test_valuation_yfinance_error_raises() -> None:
+    from qivc.exceptions import QivcDataError
+
+    with mock.patch("yfinance.Ticker", side_effect=Exception("network down")):
+        agent = ValuationAgent(client=mock.AsyncMock())
+        with pytest.raises(QivcDataError):
+            await agent.fetch(ticker="UNH")

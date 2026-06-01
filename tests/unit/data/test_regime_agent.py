@@ -224,3 +224,56 @@ def test_compute_value_growth_12m_returns_float() -> None:
             assert isinstance(val, float)
         except Exception:
             pass  # complex mock; just ensure import and call work
+
+
+async def test_regime_fred_http_error_raises() -> None:
+    """A non-200 FRED response must surface as QivcDataError."""
+    from qivc.exceptions import QivcDataError
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, content=b"server error")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    agent = RegimeAgent(client=mock.AsyncMock(), http_client=http)
+    with (
+        mock.patch("qivc.data.regime_agent._compute_value_growth_12m", return_value=0.0),
+        pytest.raises(QivcDataError),
+    ):
+        await agent.fetch()
+
+
+async def test_regime_empty_vix_raises() -> None:
+    """Empty VIXCLS series must raise QivcDataError."""
+    from qivc.exceptions import QivcDataError
+
+    transport = _make_transport([], [1.5] * 70, [0.3] * 70)
+    http = httpx.AsyncClient(transport=transport)
+    agent = RegimeAgent(client=mock.AsyncMock(), http_client=http)
+    with (
+        mock.patch("qivc.data.regime_agent._compute_value_growth_12m", return_value=0.0),
+        pytest.raises(QivcDataError),
+    ):
+        await agent.fetch()
+
+
+async def test_regime_short_credit_series_uses_first() -> None:
+    """When credit series has <60 points, the 60d-ago value falls back to the first."""
+    transport = _make_transport([18.0] * 70, [1.5] * 5, [0.3] * 70)
+    http = httpx.AsyncClient(transport=transport)
+    agent = RegimeAgent(client=mock.AsyncMock(), http_client=http)
+    with mock.patch("qivc.data.regime_agent._compute_value_growth_12m", return_value=0.0):
+        result = await agent.fetch()
+    assert result.regime in ("risk-on", "risk-mid", "risk-off")
+
+
+async def test_regime_value_growth_exception_defaults_zero() -> None:
+    """If the value-growth computation raises, it defaults to 0.0 (no crash)."""
+    transport = _make_transport([18.0] * 70, [1.5] * 70, [0.3] * 70)
+    http = httpx.AsyncClient(transport=transport)
+    agent = RegimeAgent(client=mock.AsyncMock(), http_client=http)
+    with mock.patch(
+        "qivc.data.regime_agent._compute_value_growth_12m",
+        side_effect=RuntimeError("yfinance down"),
+    ):
+        result = await agent.fetch()
+    assert result.value_growth_12m == 0.0

@@ -8,6 +8,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
@@ -27,6 +28,7 @@ FIXTURES.mkdir(parents=True, exist_ok=True)
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _json_default(obj: object) -> object:
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
@@ -44,6 +46,7 @@ def _save(name: str, data: object) -> None:
 # Form 4 fixtures
 # ---------------------------------------------------------------------------
 
+
 def _ownership_to_dict(filing: object, ownership: object) -> dict:  # type: ignore[type-arg]
     """Convert an Ownership object to a JSON-serialisable dict."""
     issuer = getattr(ownership, "issuer", None)
@@ -53,32 +56,40 @@ def _ownership_to_dict(filing: object, ownership: object) -> dict:  # type: igno
     owners_data = []
     if reporting_owners and hasattr(reporting_owners, "owners"):
         for o in reporting_owners.owners:
-            owners_data.append({
-                "cik": str(getattr(o, "cik", "") or ""),
-                "name": str(getattr(o, "name", "") or ""),
-                "officer_title": str(getattr(o, "officer_title", "") or ""),
-                "is_director": bool(getattr(o, "is_director", False)),
-                "is_officer": bool(getattr(o, "is_officer", False)),
-                "is_ten_pct_owner": bool(getattr(o, "is_ten_pct_owner", False)),
-                "is_company": bool(getattr(o, "is_company", False)),
-            })
+            owners_data.append(
+                {
+                    "cik": str(getattr(o, "cik", "") or ""),
+                    "name": str(getattr(o, "name", "") or ""),
+                    "officer_title": str(getattr(o, "officer_title", "") or ""),
+                    "is_director": bool(getattr(o, "is_director", False)),
+                    "is_officer": bool(getattr(o, "is_officer", False)),
+                    "is_ten_pct_owner": bool(getattr(o, "is_ten_pct_owner", False)),
+                    "is_company": bool(getattr(o, "is_company", False)),
+                }
+            )
 
     transactions = []
     if nd_table is not None and not getattr(nd_table, "empty", True):
         try:
             nd_txns = getattr(nd_table, "transactions", None)
-            df = nd_txns.data if nd_txns is not None and not getattr(nd_txns, "empty", True) else None
+            df = (
+                nd_txns.data
+                if nd_txns is not None and not getattr(nd_txns, "empty", True)
+                else None
+            )
             if df is not None:
                 for _, row in df.iterrows():
-                    transactions.append({
-                        "Code": str(row.get("Code", "")),
-                        "Date": str(row.get("Date", "")),
-                        "Shares": float(row.get("Shares", 0) or 0),
-                        "Price": float(row.get("Price", 0) or 0),
-                        "AcquiredDisposed": str(row.get("AcquiredDisposed", "")),
-                        "Security": str(row.get("Security", "")),
-                        "Remaining": float(row.get("Remaining", 0) or 0),
-                    })
+                    transactions.append(
+                        {
+                            "Code": str(row.get("Code", "")),
+                            "Date": str(row.get("Date", "")),
+                            "Shares": float(row.get("Shares", 0) or 0),
+                            "Price": float(row.get("Price", 0) or 0),
+                            "AcquiredDisposed": str(row.get("AcquiredDisposed", "")),
+                            "Security": str(row.get("Security", "")),
+                            "Remaining": float(row.get("Remaining", 0) or 0),
+                        }
+                    )
         except Exception as e:
             print(f"    warning: could not read transactions: {e}")
 
@@ -98,7 +109,10 @@ def _ownership_to_dict(filing: object, ownership: object) -> dict:  # type: igno
 
 def fetch_form4_fixtures() -> None:
     import edgar
-    edgar.set_identity(os.environ.get("QIVC_EDGAR_USER_AGENT", "QIVC fixture-gen fixture@qivc.internal"))
+
+    edgar.set_identity(
+        os.environ.get("QIVC_EDGAR_USER_AGENT", "QIVC fixture-gen fixture@qivc.internal")
+    )
 
     targets = [
         ("UNH", 60, "form4_unh.json"),
@@ -110,6 +124,7 @@ def fetch_form4_fixtures() -> None:
         print(f"  Fetching Form 4 for {ticker}...")
         try:
             from datetime import timedelta
+
             end = date.today()
             start = end - timedelta(days=lookback_days)
             company = edgar.Company(ticker)
@@ -139,9 +154,13 @@ def fetch_form4_fixtures() -> None:
 # 10-K fundamentals fixture (FTI Consulting)
 # ---------------------------------------------------------------------------
 
+
 def fetch_tenk_fixture() -> None:
     import edgar
-    edgar.set_identity(os.environ.get("QIVC_EDGAR_USER_AGENT", "QIVC fixture-gen fixture@qivc.internal"))
+
+    edgar.set_identity(
+        os.environ.get("QIVC_EDGAR_USER_AGENT", "QIVC fixture-gen fixture@qivc.internal")
+    )
 
     print("  Fetching 10-K for FCN (FTI Consulting)...")
     try:
@@ -203,6 +222,7 @@ def _safe_val(val: object) -> object:
 # FRED regime indicator fixtures
 # ---------------------------------------------------------------------------
 
+
 def fetch_fred_fixtures() -> None:
     import httpx
 
@@ -223,10 +243,8 @@ def fetch_fred_fixtures() -> None:
             next(reader, None)
             for row in reader:
                 if len(row) >= 2:
-                    try:
+                    with contextlib.suppress(ValueError):
                         rows.append({"date": row[0], "value": float(row[1])})
-                    except ValueError:
-                        pass
             # Keep last 120 rows to keep fixture size manageable
             _save(filename, rows[-120:])
         except Exception as e:
