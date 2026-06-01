@@ -149,3 +149,31 @@ class Cluster(BaseModel):
     window_start: date
     window_end: date
     total_value_usd: float
+
+
+# ---------------------------------------------------------------------------
+# Synthesis-layer types (added in Phase 3)
+# ---------------------------------------------------------------------------
+
+
+class Candidate(BaseModel):
+    """A ticker that passed all active gates."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ticker: str
+    cluster: Cluster
+    filter_results: list[FilterResult]
+    conviction_score: int = 0  # populated in Phase 4
+    indicative_size_pct: float = 0.0  # populated in Phase 4
+
+
+class RejectedCandidate(BaseModel):
+    """A ticker that failed at least one gate."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ticker: str
+    failed_gate: str  # name of the filter that failed
+    reason: str
+    filter_results: list[FilterResult]
