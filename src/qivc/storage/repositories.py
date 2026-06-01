@@ -148,6 +148,11 @@ def derive_run_status(db_path: str, run_id: str) -> Literal["completed", "errore
       - "errored":   any node logged an ERROR summary
       - "completed": apply_synthesis logged a non-error summary
       - "unknown":   neither condition met (e.g. process killed mid-run, or no run)
+
+    Precedence: errored > completed > unknown. A run with any ERROR log is
+    classified errored even if apply_synthesis later completed successfully.
+    This is conservative — a successful retry following an error is still
+    flagged as potentially-needs-review.
     """
     rows = get_run_audit(db_path, run_id)
     if any(str(r["result_summary"]).startswith("ERROR") for r in rows):

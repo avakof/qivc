@@ -153,3 +153,47 @@ seeded-violation tests in tests/sanity/ are the actual proof
 that each checker fires on its target failure. The first
 non-vacuous live exercise of the sanity layer will happen
 when a run produces at least one candidate.
+
+Edge case: a sanity check against a nonexistent run_id (typo,
+garbage input, empty string) returns "all invariants pass"
+because there's no data to violate them. This is defensible —
+don't false-positive on typos — but means CI pipelines fetching
+run_ids from elsewhere should validate the ID exists before
+relying on a passing sanity check as confirmation that real
+data was checked.
+
+---
+
+## Design Decision: Short-Circuit vs. Evaluate-All
+
+Current behavior: the gate pipeline is **hybrid**, not a pure short-circuit.
+Stage 1 (`regime` → `insider_conviction` → data-availability) short-circuits on
+the first failing gate — a ticker that fails one of these never has the later
+Stage-1 gates evaluated (this is why a ticker rejected at `insider_conviction`,
+e.g. GPUS, records only the gates that actually ran). Stage 2 (the six
+quality/valuation gates: `f_score`, `gp_a`, `valuation`, `revisions`,
+`short_interest`, `liquidity`) is evaluate-all: all six are computed and every
+result is recorded, and only the *first* failure is used as the rejection
+reason. So short-circuiting applies through `insider_conviction`, not across the
+Stage-2 quality block.
+
+Pros:
+ - Faster (saves N gate evaluations per rejected ticker)
+ - Cleaner audit log (only logs gates that actually ran)
+
+Cons:
+ - Rejection reasons in dossier may be incomplete (a ticker fails
+   for one reason, but might have failed for several)
+ - Can't compute "which gate kills the most candidates" analytics
+   for strategy tuning
+ - Sanity tests need to handle the "this gate wasn't evaluated"
+   case explicitly
+
+Decision: keep short-circuit for daily live screens (current
+default). For backtesting (Phase 7) and strategy analytics, add
+a `--evaluate-all-gates` flag to qivc screen that records every
+gate result regardless of earlier failures.
+
+`--evaluate-all-gates` is **future work — not yet implemented**; it is the next
+step for strategy analytics (it would also let Stage 1 record all gate outcomes
+per ticker, removing the "this gate wasn't evaluated" caveat above).
