@@ -208,6 +208,53 @@ def test_audit_after_screen(patched_env: Path) -> None:
     assert "f_score" in audit_result.output
 
 
+def test_audit_shows_insider_classifications(patched_env: Path) -> None:
+    """`qivc audit` surfaces per-insider CMP labels alongside the gate breakdown."""
+    from qivc.schemas import FilterResult, RejectedCandidate
+    from qivc.storage import repositories as repo
+
+    db = str(patched_env / "qivc.db")
+    run_id = "audit-class-test"
+
+    rejected = RejectedCandidate(
+        ticker="FCN",
+        failed_gate="insider_conviction",
+        reason="No Track A or Track B cluster detected",
+        filter_results=[
+            FilterResult(
+                filter_name="insider_conviction",
+                passed=False,
+                metric_value=0.0,
+                threshold=1.0,
+                reason="No Track A or Track B cluster detected",
+            ),
+        ],
+    )
+    repo.save_filter_results(db, run_id, [], [rejected])
+    repo.save_insider_classifications(
+        db,
+        run_id,
+        [
+            {
+                "ticker": "FCN",
+                "cik": "0001597949",
+                "name": "Steven Henry Gunby",
+                "classification": "opportunistic",
+                "years_history": 3,
+                "n_purchases": 2,
+                "total_value_usd": 1_441_707.0,
+                "is_officer": True,
+            }
+        ],
+    )
+
+    result = runner.invoke(cli_main.app, ["audit", run_id])
+    assert result.exit_code == 0, result.output
+    assert "Steven Henry Gunby" in result.output
+    assert "opportunistic" in result.output
+    assert "officer" in result.output
+
+
 def test_audit_unknown_run_id_exits_nonzero(patched_env: Path) -> None:
     result = runner.invoke(cli_main.app, ["audit", "no-such-run"])
     assert result.exit_code == 1

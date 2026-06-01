@@ -394,8 +394,9 @@ def audit(run_id: str = typer.Argument(..., help="Run ID to audit.")) -> None:
 
     audit_rows = repo.get_run_audit(db_path, run_id)
     filter_rows = repo.get_filter_results(db_path, run_id)
+    classification_rows = repo.get_insider_classifications(db_path, run_id)
 
-    if not audit_rows and not filter_rows:
+    if not audit_rows and not filter_rows and not classification_rows:
         typer.echo(f"No data found for run_id {run_id}")
         raise typer.Exit(code=1)
 
@@ -405,6 +406,11 @@ def audit(run_id: str = typer.Argument(..., help="Run ID to audit.")) -> None:
         typer.echo(
             f"  {row['node_name']:<28} {row['duration_ms']:>8.1f} ms  {row['result_summary']}"
         )
+
+    # Per-insider CMP classifications grouped by ticker.
+    classifications_by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for row in classification_rows:
+        classifications_by_ticker.setdefault(str(row["ticker"]), []).append(row)
 
     typer.echo("\nGate breakdown by ticker:")
     by_ticker: dict[str, list[dict[str, Any]]] = {}
@@ -421,6 +427,15 @@ def audit(run_id: str = typer.Argument(..., help="Run ID to audit.")) -> None:
         for r in rows:
             verdict = "UNVERIFIABLE" if r["passed"] is None else "PASS" if r["passed"] else "FAIL"
             typer.echo(f"      {r['filter_name']:<20} {verdict:<13} {r['reason']}")
+        # Insider classifications for this ticker (drives the insider_conviction gate).
+        for c in classifications_by_ticker.get(tkr, []):
+            officer = "officer" if c["is_officer"] else "non-officer"
+            typer.echo(
+                f"      · insider {c['name']} (CIK {c['cik']}): "
+                f"{c['classification']}, {officer}, "
+                f"{c['n_purchases']} buy(s), ${float(c['total_value_usd']):,.0f}, "
+                f"{c['years_history']}y history"
+            )
 
 
 # ---------------------------------------------------------------------------
