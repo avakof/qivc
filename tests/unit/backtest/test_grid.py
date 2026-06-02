@@ -269,7 +269,7 @@ def test_grid_drops_untradeable_late_listing(tmp_path: Path) -> None:
         funds[f"{late}|{r}"] = json.loads(f.model_dump_json())
     root.put_json("fundamentals", funds)
 
-    res = run_backtest_grid(
+    run_backtest_grid(
         _YEAR,
         [GridConfig(10, 60, 90)],
         db_path=db,
