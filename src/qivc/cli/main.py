@@ -64,7 +64,11 @@ def build_agents(settings: Any) -> Any:
     )
     agents = SimpleNamespace()
     agents.regime = RegimeAgent(client=client)
-    agents.form4 = Form4Agent(client=client)
+    # Form4Agent reads the bulk store (form4_historical) for filings filed on or
+    # before the latest complete quarter, falling back to live EDGAR for the delta.
+    agents.form4 = Form4Agent(
+        client=client, db_path=getattr(settings, "db_path", "data/duckdb/qivc.db")
+    )
     agents.insider_history = InsiderHistoryAgent(client=client)
     agents.fundamentals = FundamentalsAgent(client=client)
     agents.valuation = ValuationAgent(client=client)

@@ -37,6 +37,7 @@ from pathlib import Path
 import duckdb
 import httpx
 
+from qivc.schemas import InsiderTransaction
 from qivc.storage.db import get_connection
 
 log = logging.getLogger(__name__)
@@ -559,3 +560,83 @@ def validate(db_path: str) -> dict[str, object]:
         "per_year": [(int(r[0]), int(r[1])) for r in per_year],
         "quarters_loaded": [(str(r[0]), int(r[1]), str(r[2])) for r in progress],
     }
+
+
+# --------------------------------------------------------------------------
+# Read API — serve the daily scan window from the bulk store
+# --------------------------------------------------------------------------
+
+
+def bulk_cutover_date(db_path: str) -> _dt.date | None:
+    """
+    The bulk/live boundary: the end date of the most recent **complete** quarter
+    in the store. The bulk store is authoritative for filings filed on or before
+    this date; anything filed after it must come from live EDGAR (the daily
+    delta). Returns ``None`` if no quarter is loaded.
+
+    Quarter-end (not max(filed_date)) is the principled boundary because SEC
+    assigns each filing to a quarter by its *filing* date, so a complete quarter
+    archive covers every filing filed through its quarter-end.
+    """
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT quarter FROM bulk_load_progress WHERE status = 'complete'"
+        ).fetchall()
+    quarters = [str(r[0]) for r in rows]
+    if not quarters:
+        return None
+    return quarter_end_date(max(quarters, key=_quarter_sort_key))
+
+
+def read_purchases(
+    db_path: str,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    ticker: str | None = None,
+) -> list[InsiderTransaction]:
+    """
+    Read open-market purchases from ``form4_historical`` for filings filed in
+    ``[start_date, end_date]`` (inclusive), optionally scoped to *ticker*.
+
+    Returns the **full multi-owner fan-out** (one record per transaction x owner),
+    NOT de-duplicated. Cluster detection de-duplicates by accession downstream
+    (see ``cluster_detector.dedupe_by_accession``); the audit / classifications
+    path consumes the full detail. See BULK_DATA_NOTES.md and STRATEGY_NOTES.md
+    ("Fan-Out Dedup Policy").
+    """
+    params: list[object] = [start_date, end_date]
+    ticker_clause = ""
+    if ticker:
+        ticker_clause = "AND ticker = ?"
+        params.append(ticker)
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT cik, name, title, ticker, shares, price, value_usd,
+                   transaction_date, filed_date, transaction_code,
+                   is_director, is_officer, is_ten_percent_owner, accession_number
+            FROM form4_historical
+            WHERE filed_date >= ? AND filed_date <= ? {ticker_clause}
+            ORDER BY filed_date, accession_number
+            """,
+            params,
+        ).fetchall()
+    return [
+        InsiderTransaction(
+            cik=str(r[0]),
+            name=str(r[1]),
+            title=str(r[2]),
+            ticker=str(r[3]),
+            shares=float(r[4]),
+            price=float(r[5]),
+            value_usd=float(r[6]),
+            transaction_date=r[7],
+            filed_date=r[8],
+            transaction_code=str(r[9]),
+            is_director=bool(r[10]),
+            is_officer=bool(r[11]),
+            is_ten_percent_owner=bool(r[12]),
+            accession_number=str(r[13]),
+        )
+        for r in rows
+    ]

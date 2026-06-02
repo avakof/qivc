@@ -229,5 +229,82 @@ Two known limitations of the bulk source are documented in full in
    filter removes only non-positive prices; a value/price sanity bound is a
    candidate for Task 8.2/8.3.
 
-The cutover wiring, cap removal (`_GLOBAL_SCAN_LIMIT`), and the full-universe
-comparison are **Tasks 8.2–8.4 — not yet implemented.**
+The cutover wiring and cap removal (`_GLOBAL_SCAN_LIMIT`) are **done (Task 8.2)** —
+see "Fan-Out Dedup Policy" below. The full-universe comparison (8.3) and its
+write-up (8.4) are **not yet implemented.**
+
+---
+
+## Fan-Out Dedup Policy (Task 8.2)
+
+**Decision: de-duplicate by `accession_number` for cluster detection; preserve
+the full multi-owner fan-out for the audit / `insider_classifications` path.**
+
+**Why.** The SEC bulk schema has no per-transaction owner key, so a joint Form 4
+with N co-filing owners fans out to N records of the same purchase (see
+[BULK_DATA_NOTES.md](BULK_DATA_NOTES.md) §5). A single filing is **one event,
+not N signals.** Track A requires ≥3 *distinct* opportunistic insiders; counting
+co-filers as separate buyers would spuriously trip Track A for any ticker with
+institutional co-filing activity. This is **correctness, not style** — among
+P-code filings ~18% of accessions are multi-owner (~1.5× record inflation).
+
+**Where it applies.**
+- **Cluster detection** (`apply_cluster_detection` → `detect_clusters`): the
+  input is first passed through `cluster_detector.dedupe_by_accession`, which
+  keeps **one representative record per `accession_number`** — officer preferred,
+  then largest `value_usd`. Records with no accession (the live path's
+  single-owner records, synthetic single-ticker transactions) pass through
+  unchanged and are never collapsed together. Result: a co-filed event
+  contributes one buyer; three *distinct* filings still trip Track A.
+- **Audit / `insider_classifications` table**: consumes the **full fan-out** —
+  `qivc audit` benefits from seeing every listed insider on a filing, with
+  per-(ticker, CIK) buy counts and totals. No dedup here.
+
+**Source semantics.** The bulk path (`bulk_loader.read_purchases`) returns the
+full fan-out; the live EDGAR path (`_parse_ownership`) already attributes a
+filing to a single chosen owner, so it emits one record per filing and is a
+no-op under dedup. `accession_number` was added to `InsiderTransaction` to carry
+the provenance the dedup keys on.
+
+**Cutover.** `Form4Agent.fetch` reads the bulk store for filings filed on or
+before the latest complete bulk quarter (`bulk_loader.bulk_cutover_date`), and
+live EDGAR for the delta filed after it. Overlapping `(cik, accession_number)`
+records are de-duplicated with **bulk winning**. Because the bulk store is
+quarterly, a short trailing daily window is typically served entirely by the
+live delta (the current quarter is never in the bulk store until it closes and
+publishes ~7 days later); the bulk store's daily-window benefit is realized in
+the ~2 weeks after each quarterly publish, while its larger wins are the CMP
+3-year history and historical/backtest windows.
+
+---
+
+## Known Bottlenecks
+
+### Per-CIK history fetch is now the dominant cost
+
+Task 8.2 rewired `Form4Agent` to use the bulk store. But `InsiderHistoryAgent`
+still fetches each unique insider's 3-year history **live from EDGAR, one
+throttled call per CIK**. For a full 14-day screen surfacing ~1,855 filings with
+many distinct buyers, this dominates wall-clock time. (Observed in the Task 8.2
+verification run: the live Form-4 parse of 1,855 filings finished, then the run
+stalled in `fetch_insider_histories` — per-CIK live calls at ≤8/s with back-off.)
+
+**The fix:** wire `InsiderHistoryAgent` to read CMP history from
+`form4_historical` (the bulk store already has 3 years of P-code history per
+CIK). The bulk store is local, so per-CIK reads become disk I/O instead of
+network calls. Expected speedup: **minutes → seconds.**
+
+**Scheduled as the top-priority item in Task 8.3**, *before* the original 8.3
+"full-universe comparison" goal: a comparison study is not realistically
+runnable while each screen takes 30–45 minutes, so fixing this bottleneck is a
+prerequisite for the comparison.
+
+### Removing the 100-cap made the full-window live parse slow
+
+With `_GLOBAL_SCAN_LIMIT` gone, parsing the full 14-day live window examines
+~19,000 filings (one `obj()` network-parse each) ≈ ~3 hours. This is inherent to
+"remove the cap + quarterly bulk source": the bulk store never holds the current
+trailing window, so the daily market-wide scan is correct-but-slow when the
+window is past the latest bulk quarter. A daily/incremental delta feed (rather
+than waiting for the quarterly publish) is the real fix — future work beyond the
+current task series.

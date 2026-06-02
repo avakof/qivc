@@ -216,6 +216,7 @@ async def test_form4_agent_empty_filings() -> None:
 
     agent = object.__new__(Form4Agent)
     agent._client = client  # type: ignore[attr-defined]
+    agent._db_path = None  # type: ignore[attr-defined]  # live-only path
 
     result = await agent.fetch(ticker="XYZ", lookback_days=14)
     assert result == []
@@ -229,8 +230,9 @@ async def test_form4_agent_empty_filings() -> None:
 def test_form4_agent_init_and_source_name() -> None:
     client = mock.AsyncMock()
     agent = Form4Agent(client=client)
-    assert agent.source_name == "sec_edgar_form4"
+    assert agent.source_name == "sec_form4_bulk+live"
     assert agent._client is client  # type: ignore[attr-defined]
+    assert agent._db_path is None  # type: ignore[attr-defined]
 
 
 async def test_form4_agent_fetch_raises_on_client_error() -> None:
@@ -519,3 +521,98 @@ def test_data_module_does_not_import_filters() -> None:
             )
         except FileNotFoundError:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Hybrid bulk + live-delta fetch (Task 8.2)
+# ---------------------------------------------------------------------------
+
+
+def _bulk_store_with_2024q1(tmp_path: Path) -> str:
+    """Create a bulk store containing one 2024q1 P-filing (ticker AAA, cik 111)."""
+    from qivc.data import bulk_loader as bl
+    from qivc.storage.db import get_connection
+
+    sub = tmp_path / "SUBMISSION.tsv"
+    own = tmp_path / "REPORTINGOWNER.tsv"
+    nd = tmp_path / "NONDERIV_TRANS.tsv"
+    sub.write_text("ACCESSION_NUMBER\tFILING_DATE\tISSUERTRADINGSYMBOL\nBULK1\t10-FEB-2024\tAAA\n")
+    own.write_text(
+        "ACCESSION_NUMBER\tRPTOWNERCIK\tRPTOWNERNAME\tRPTOWNER_RELATIONSHIP\tRPTOWNER_TITLE\n"
+        "BULK1\t111\tALICE\tOfficer\tCEO\n"
+    )
+    nd.write_text(
+        "ACCESSION_NUMBER\tTRANS_CODE\tTRANS_DATE\tTRANS_SHARES\tTRANS_PRICEPERSHARE\n"
+        "BULK1\tP\t08-FEB-2024\t1000.0\t50.0\n"
+    )
+    db = str(tmp_path / "qivc.db")
+    import datetime as _dt
+
+    with get_connection(db) as conn:
+        bl.import_quarter(conn, sub, own, nd, "2024q1")
+        bl._record_progress(conn, "2024q1", 1, "complete", _dt.datetime(2026, 5, 1))
+    return db
+
+
+def _live_filing(accession: str, cik: str, filed: str = "01-MAY-2026") -> Any:
+    """A live edgartools-style filing with one P transaction and an accession."""
+    record = {
+        "issuer": {"ticker": "AAA", "name": "Alpha", "cik": "999"},
+        "reporting_owners": [
+            {"cik": cik, "name": f"Owner {cik}", "is_officer": True, "is_company": False}
+        ],
+        "non_derivative_transactions": [
+            {"Code": "P", "Date": "2026-05-01", "Shares": 10.0, "Price": 5.0}
+        ],
+    }
+    filing = SimpleNamespace(filed=filed, accession_no=accession)
+    filing.obj = lambda: _make_ownership(record)  # type: ignore[assignment]
+    return filing
+
+
+async def test_fetch_merges_bulk_and_live_delta(tmp_path: Path) -> None:
+    """Window spanning the bulk quarter + recent days yields bulk AND live records."""
+    db = _bulk_store_with_2024q1(tmp_path)
+    client = mock.AsyncMock()
+    client.get_form4_filings = mock.AsyncMock(
+        return_value=_Collection([_live_filing("LIVE1", "999")])
+    )
+    agent = Form4Agent(client=client, db_path=db)
+
+    # Large lookback so the window start precedes 2024-03-31 (the bulk cutover).
+    result = await agent.fetch(ticker=None, lookback_days=1000)
+
+    ciks = {t.cik for t in result}
+    assert "111" in ciks  # bulk record
+    assert "999" in ciks  # live-delta record
+    bulk_rec = next(t for t in result if t.cik == "111")
+    assert bulk_rec.accession_number == "BULK1"
+
+
+async def test_fetch_bulk_wins_on_overlap(tmp_path: Path) -> None:
+    """A live record duplicating a bulk (cik, accession) is dropped — bulk wins."""
+    db = _bulk_store_with_2024q1(tmp_path)
+    client = mock.AsyncMock()
+    # Live returns a filing with the SAME (cik, accession) as the bulk record.
+    client.get_form4_filings = mock.AsyncMock(
+        return_value=_Collection([_live_filing("BULK1", "111")])
+    )
+    agent = Form4Agent(client=client, db_path=db)
+    result = await agent.fetch(ticker=None, lookback_days=1000)
+
+    matches = [t for t in result if t.cik == "111" and t.accession_number == "BULK1"]
+    assert len(matches) == 1  # not duplicated; the bulk copy is kept
+
+
+async def test_fetch_live_only_when_window_after_cutover(tmp_path: Path) -> None:
+    """A short recent window is entirely past the bulk cutover -> live only."""
+    db = _bulk_store_with_2024q1(tmp_path)
+    client = mock.AsyncMock()
+    client.get_form4_filings = mock.AsyncMock(
+        return_value=_Collection([_live_filing("LIVE9", "999")])
+    )
+    agent = Form4Agent(client=client, db_path=db)
+    result = await agent.fetch(ticker=None, lookback_days=14)  # May 2026 window
+
+    ciks = {t.cik for t in result}
+    assert ciks == {"999"}  # no bulk record (cutover is 2024-03-31)

@@ -19,6 +19,43 @@ _OPPORTUNISTIC = "opportunistic"
 _TRACK_B_MIN_USD: float = 250_000.0  # default C-suite size threshold
 
 
+def _signal_rank(t: InsiderTransaction) -> tuple[bool, float]:
+    """Pick the strongest representative of a filing: prefer an officer, then size."""
+    return (t.is_officer, t.value_usd)
+
+
+def dedupe_by_accession(
+    transactions: list[InsiderTransaction],
+) -> list[InsiderTransaction]:
+    """
+    Collapse a single filing's multi-owner fan-out to ONE representative
+    transaction for cluster detection. A Form 4 with N co-filing owners is one
+    *event*, not N signals — counting co-filers as distinct buyers would
+    artificially inflate Track A clusters for any ticker with institutional
+    co-filing. This is correctness, not style (see STRATEGY_NOTES "Fan-Out
+    Dedup Policy").
+
+    Keeps the strongest record per ``accession_number`` (officer first, then
+    largest ``value_usd``). Records with no accession_number (e.g. the live
+    path's single-owner records or synthetic transactions) are passed through
+    unchanged — they are never collapsed together.
+
+    The audit / ``insider_classifications`` path does NOT call this; it keeps the
+    full fan-out so every listed insider on a filing is visible.
+    """
+    best: dict[str, InsiderTransaction] = {}
+    passthrough: list[InsiderTransaction] = []
+    for t in transactions:
+        acc = t.accession_number
+        if not acc:
+            passthrough.append(t)
+            continue
+        current = best.get(acc)
+        if current is None or _signal_rank(t) > _signal_rank(current):
+            best[acc] = t
+    return [*best.values(), *passthrough]
+
+
 def detect_clusters(
     transactions: list[InsiderTransaction],
     classifications: dict[str, str],  # cik → "opportunistic"|"routine"|"unclassified"

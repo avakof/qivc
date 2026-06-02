@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from qivc.filters.cluster_detector import detect_clusters
+from qivc.filters.cluster_detector import dedupe_by_accession, detect_clusters
 from qivc.schemas import InsiderTransaction
 
 # ---------------------------------------------------------------------------
@@ -179,3 +179,93 @@ def test_total_value_usd_summed_correctly() -> None:
     clusters = detect_clusters(txns, classifications, window_days=7)
     assert len(clusters) == 1
     assert clusters[0].total_value_usd == pytest.approx(450_000.0)
+
+
+# ---------------------------------------------------------------------------
+# Fan-out dedup policy (Task 8.2): co-filers on one filing = one event
+# ---------------------------------------------------------------------------
+
+
+def _txn_acc(
+    cik: str,
+    accession: str,
+    d: date = _BASE_DATE,
+    is_officer: bool = True,
+    value_usd: float = 50_000.0,
+) -> InsiderTransaction:
+    return InsiderTransaction(
+        cik=cik,
+        name=f"Insider {cik}",
+        title="CFO" if is_officer else "Director",
+        ticker="FCN",
+        shares=1000.0,
+        price=value_usd / 1000.0,
+        value_usd=value_usd,
+        transaction_date=d,
+        filed_date=d,
+        transaction_code="P",
+        is_director=not is_officer,
+        is_officer=is_officer,
+        is_ten_percent_owner=False,
+        accession_number=accession,
+    )
+
+
+def test_dedupe_collapses_co_owners_on_one_accession() -> None:
+    """3 co-owners on ONE filing collapse to a single representative record."""
+    txns = [
+        _txn_acc("C1", "ACC-1", is_officer=False, value_usd=10_000.0),
+        _txn_acc("C2", "ACC-1", is_officer=True, value_usd=20_000.0),
+        _txn_acc("C3", "ACC-1", is_officer=False, value_usd=99_000.0),
+    ]
+    out = dedupe_by_accession(txns)
+    assert len(out) == 1
+    # Officer is preferred over larger non-officer value.
+    assert out[0].cik == "C2"
+
+
+def test_dedupe_preserves_distinct_accessions() -> None:
+    txns = [_txn_acc("C1", "ACC-1"), _txn_acc("C2", "ACC-2"), _txn_acc("C3", "ACC-3")]
+    assert len(dedupe_by_accession(txns)) == 3
+
+
+def test_dedupe_passes_through_empty_accession() -> None:
+    """Records with no accession (live single-owner / synthetic) are never merged."""
+    txns = [_txn_acc("C1", ""), _txn_acc("C2", ""), _txn_acc("C3", "ACC-9")]
+    out = dedupe_by_accession(txns)
+    assert len(out) == 3
+    assert {t.cik for t in out} == {"C1", "C2", "C3"}
+
+
+def test_co_owner_filing_does_not_inflate_track_a() -> None:
+    """
+    THE acceptance test: a single filing with 3 opportunistic co-owners must
+    contribute ONE buyer, not three — so it cannot by itself trip Track A
+    (which needs >=3 DISTINCT filings/insiders).
+    """
+    co_owners = [
+        _txn_acc("C1", "ACC-SAME", d=_BASE_DATE, is_officer=False),
+        _txn_acc("C2", "ACC-SAME", d=_BASE_DATE, is_officer=False),
+        _txn_acc("C3", "ACC-SAME", d=_BASE_DATE, is_officer=False),
+    ]
+    classifications = {"C1": "opportunistic", "C2": "opportunistic", "C3": "opportunistic"}
+
+    # Without dedup, the raw fan-out would look like 3 distinct buyers -> false Track A.
+    raw = detect_clusters(co_owners, classifications, window_days=7)
+    assert any(c.track == "A" for c in raw), "raw fan-out spuriously trips Track A"
+
+    # With dedup, the single filing is one event -> no Track A.
+    deduped = detect_clusters(dedupe_by_accession(co_owners), classifications, window_days=7)
+    assert not any(c.track == "A" for c in deduped)
+
+
+def test_three_distinct_filings_still_trip_track_a_after_dedup() -> None:
+    """Dedup must NOT suppress a genuine 3-distinct-filing cluster."""
+    txns = [
+        _txn_acc("D1", "ACC-1", d=_BASE_DATE, is_officer=False),
+        _txn_acc("D2", "ACC-2", d=_BASE_DATE + timedelta(days=2), is_officer=False),
+        _txn_acc("D3", "ACC-3", d=_BASE_DATE + timedelta(days=4), is_officer=False),
+    ]
+    classifications = {"D1": "opportunistic", "D2": "opportunistic", "D3": "opportunistic"}
+    clusters = detect_clusters(dedupe_by_accession(txns), classifications, window_days=7)
+    assert any(c.track == "A" for c in clusters)

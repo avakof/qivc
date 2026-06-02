@@ -376,3 +376,76 @@ def test_validate_summarises_store(tmp_path: Path) -> None:
     assert v["max_filed_date"] == "2024-02-07"
     assert (2023, 1) in v["per_year"]  # type: ignore[operator]
     assert (2024, 1) in v["per_year"]  # type: ignore[operator]
+
+
+# ---------------------------------------------------------------------------
+# Read API: bulk_cutover_date + read_purchases (Task 8.2)
+# ---------------------------------------------------------------------------
+
+
+def test_bulk_cutover_date_is_latest_complete_quarter_end(tmp_path: Path) -> None:
+    db = str(tmp_path / "q.db")
+    now = dt.datetime(2026, 5, 1, 12, 0, 0)
+    with get_connection(db) as conn:
+        # No quarters yet -> None.
+        assert bl.bulk_cutover_date(db) is None
+        bl._record_progress(conn, "2025q4", 10, "complete", now)
+        bl._record_progress(conn, "2026q1", 10, "complete", now)
+        bl._record_progress(conn, "2026q2", 0, "failed", now)  # incomplete ignored
+    # Latest COMPLETE quarter is 2026q1 -> end 2026-03-31.
+    assert bl.bulk_cutover_date(db) == dt.date(2026, 3, 31)
+
+
+def test_read_purchases_filters_by_date_and_ticker(tmp_path: Path) -> None:
+    sub, own, nd = _fixture(
+        tmp_path,
+        submission=[
+            "A1\t10-FEB-2024\tAAA",
+            "A2\t20-FEB-2024\tBBB",
+            "A3\t10-NOV-2024\tAAA",  # outside the Feb window
+        ],
+        owner=[
+            "A1\t111\tALICE\tOfficer\tCEO",
+            "A2\t222\tBOB\tDirector\t",
+            "A3\t333\tCARL\tOfficer\tCFO",
+        ],
+        trans=[
+            "A1\tP\t08-FEB-2024\t1000.0\t50.0",
+            "A2\tP\t18-FEB-2024\t100.0\t10.0",
+            "A3\tP\t08-NOV-2024\t100.0\t10.0",
+        ],
+    )
+    db = str(tmp_path / "q.db")
+    with get_connection(db) as conn:
+        bl.import_quarter(conn, sub, own, nd, "2024q1")  # only Feb rows count here
+        bl.import_quarter(conn, sub, own, nd, "2024q4")  # re-import keeps all 3 under q4
+
+    # Window in Feb 2024 -> only the two Feb filings, regardless of source_quarter.
+    feb = bl.read_purchases(db, dt.date(2024, 2, 1), dt.date(2024, 2, 28))
+    assert {t.ticker for t in feb} == {"AAA", "BBB"}
+    assert all(t.transaction_code == "P" for t in feb)
+    assert all(t.accession_number for t in feb)  # provenance populated
+
+    # Ticker scoping.
+    aaa = bl.read_purchases(db, dt.date(2024, 2, 1), dt.date(2024, 2, 28), ticker="AAA")
+    assert {t.ticker for t in aaa} == {"AAA"}
+
+
+def test_read_purchases_returns_full_fanout(tmp_path: Path) -> None:
+    """read_purchases preserves multi-owner fan-out (dedup is downstream)."""
+    sub, own, nd = _fixture(
+        tmp_path,
+        submission=["A1\t10-FEB-2024\tAAA"],
+        owner=[
+            "A1\t111\tFUND LP\tTenPercentOwner\t",
+            "A1\t222\tFUND GP\tTenPercentOwner\t",
+        ],
+        trans=["A1\tP\t08-FEB-2024\t1000.0\t10.0"],
+    )
+    db = str(tmp_path / "q.db")
+    with get_connection(db) as conn:
+        bl.import_quarter(conn, sub, own, nd, "2024q1")
+    rows = bl.read_purchases(db, dt.date(2024, 2, 1), dt.date(2024, 2, 28))
+    assert len(rows) == 2  # both co-owners present
+    assert {r.cik for r in rows} == {"111", "222"}
+    assert all(r.accession_number == "A1" for r in rows)

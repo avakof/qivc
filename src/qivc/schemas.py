@@ -24,6 +24,10 @@ class InsiderTransaction(BaseModel):
     is_director: bool
     is_officer: bool
     is_ten_percent_owner: bool
+    # SEC filing id; populated from the bulk store / live EDGAR. Used to
+    # de-duplicate multi-owner (co-filer) fan-out for cluster detection — one
+    # filing is one event, not N signals (see cluster_detector.dedupe_by_accession).
+    accession_number: str = ""
 
 
 class InsiderHistory(BaseModel):

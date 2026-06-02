@@ -332,8 +332,13 @@ def make_nodes(agents: Any, settings: Any) -> dict[str, Any]:
                 else:
                     classifications[cik] = cmp_mod.classify(txn, h)
 
+        # De-dup co-filer fan-out for cluster counting ONLY: one filing is one
+        # event, not N signals (see cluster_detector.dedupe_by_accession and
+        # STRATEGY_NOTES "Fan-Out Dedup Policy"). The classifications table below
+        # still consumes the full fan-out so audit sees every listed insider.
+        cluster_input = cluster_mod.dedupe_by_accession(all_txns)
         clusters = cluster_mod.detect_clusters(
-            all_txns,
+            cluster_input,
             classifications,
             window_days=settings.cluster_window_days,
         )
