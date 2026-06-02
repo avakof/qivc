@@ -323,6 +323,18 @@ Until Task 9, run the daily screen on a schedule that tolerates the long live
 ingest (e.g. an overnight cron), or use a shorter `--lookback-days` for
 interactive checks.
 
+### Backtest history-coverage prerequisite (Task 10)
+
+For a backtest at date **D**, the bulk store must extend back to **D − 3 calendar
+years** for CMP classification to function — the classifier needs each insider's
+trades across the 3 prior calendar years (a 2025 buy is classified against
+2022/2023/2024). The 2025 backtest therefore required bootstrapping **2022** into
+the store (it had started at 2023q1, leaving every 2025 insider unclassifiable →
+0 clusters → 100% cash). Today's *daily* screen has sufficient coverage (2023–2026
+covers the 3 prior years for 2026 candidates); any future backtest of a period
+before 2023 needs additional historical quarters bootstrapped first (the SEC
+Insider Transactions Data Sets reach back to 2006).
+
 ---
 
 ## The 100-Filing Cap Discovery (Task 8)
@@ -462,7 +474,36 @@ traders correctly resolve to routine). **Clusters now form** where the duration
 proxy structurally suppressed them — e.g. Track B on ENPH (CEO Kothandaraman,
 $337K), PSEC (Chairman/CEO John Barry, $1.997M), NXDT ($262K), and a Track A
 cluster on UBCP (5 opportunistic insiders). All four were then rejected at the
-**valuations** gate — so the universe still yields **0 candidates**, but now for
-a substantive valuation reason rather than a classifier artifact. Run status
-`completed`; all sanity invariants pass. The classifier is now trustworthy for
-the backtest.
+**valuations** gate — but that rejection was **structural, not substantive**: the
+valuation data/sector-median was unavailable (see OQ-5), so the gate could not be
+evaluated rather than the names being expensive. The universe still yields
+**0 candidates**. Run status `completed`; sanity passes (0 candidates → vacuous).
+The classifier is now trustworthy for the backtest.
+
+---
+
+## OQ-5 — Sector-medians pipeline is a stub (valuation gate structurally UNVERIFIABLE)
+
+`scripts/refresh_sector_medians.py` is an **empty stub**. The live daily screen
+has no point-in-time sector medians, so `ValuationAgent` supplies
+`sector_median_metric_value=None` and the valuation gate returns **UNVERIFIABLE**.
+Because `valuation` is in `sanity.REQUIRED_GATES` (every survivor must have it
+`passed=True`, never None), **UNVERIFIABLE valuation effectively blocks candidacy**
+in production.
+
+**Implication.** In run `0259f310` (post-OQ-4), the four clustered names rejected
+"at valuation" were rejected **structurally** — the gate could not be evaluated —
+not because their valuations were poor. The same is true of `revisions` and
+`short_interest`, which also lack a populated data source.
+
+**v2.1 work:** build `refresh_sector_medians.py` — a weekly pipeline computing
+industry-median forward P/E (and the other sector-appropriate metrics) across the
+~1,900-ticker IWM universe — to make the valuation gate active in production.
+
+**For the 2025 backtest (Task 10):** valuation, revisions, and short_interest run
+as **UNVERIFIABLE** (no point-in-time data). To let the strategy trade and be
+reviewed, the backtest defines candidacy and sanity against the **5 binding gates
+that DO have point-in-time data — regime, insider_conviction, F-Score, GP/A,
+liquidity** — and documents the three UNVERIFIABLE gates as a known limitation
+(BACKTEST_LIMITATIONS.md). This deviates from production's 8-gate REQUIRED set; it
+is a backtest-scoped relaxation, not a strategy change.
