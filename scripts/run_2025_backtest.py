@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import sys
 from pathlib import Path
 
 import httpx
@@ -40,7 +41,30 @@ PRICE_END = _dt.date(2026, 1, 3)
 INIT_CASH = 1_000_000.0
 SLIPPAGE_BPS = 5.0
 COMMISSION_BPS = 1.0
-RUN_ID = "2025_full_qivc"
+
+# Variant config: v2.0 = strict (all gates, ≥3-in-7d / $250k / F≥7);
+# v2.1 = loosened (≥2-in-14d / $100k / F≥6, exclude Financials+Real Estate).
+VARIANT = sys.argv[1] if len(sys.argv) > 1 else "v20"
+CONFIGS = {
+    "v20": {
+        "run_id": "2025_full_qivc",
+        "exclude_sectors": set(),
+        "track_a_min_distinct": 3,
+        "cluster_window_days": 7,
+        "track_b_min_usd": 250_000.0,
+        "fscore_threshold": 7,
+    },
+    "v21": {
+        "run_id": "2025_v21",
+        "exclude_sectors": {"Financials", "Real Estate"},
+        "track_a_min_distinct": 2,
+        "cluster_window_days": 14,
+        "track_b_min_usd": 100_000.0,
+        "fscore_threshold": 6,
+    },
+}
+CFG = CONFIGS[VARIANT]
+RUN_ID = CFG["run_id"]
 
 
 def _regime_cached(
@@ -59,9 +83,13 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     settings = Settings()
     db = settings.db_path
-    universe = iwm_tickers()
     sector_map = iwm_sector_map()
-    cache = providers.BacktestCache(Path("data/backtests/_cache_2025"))
+    excl = CFG["exclude_sectors"]
+    universe = {t for t in iwm_tickers() if sector_map.get(t) not in excl}
+    log.info(
+        "Variant %s: universe %d (excluded sectors: %s)", VARIANT, len(universe), excl or "none"
+    )
+    cache = providers.BacktestCache(Path(f"data/backtests/_cache_2025_{VARIANT}"))
 
     # ---- Prices: benchmarks + rates first (to get the trading calendar) ----
     log.info("Fetching benchmark/rate prices ...")
@@ -83,7 +111,15 @@ def main() -> None:
 
     # ---- Pass 1: clustered tickers per rebalance (bulk store only) ----
     clusters_by_rb = {
-        r.date(): clusters_as_of(r.date(), db_path=db, universe=universe) for r in rebalance
+        r.date(): clusters_as_of(
+            r.date(),
+            db_path=db,
+            universe=universe,
+            cluster_window_days=CFG["cluster_window_days"],
+            track_b_min_usd=CFG["track_b_min_usd"],
+            track_a_min_distinct=CFG["track_a_min_distinct"],
+        )
+        for r in rebalance
     }
     clustered = sorted({t for cl in clusters_by_rb.values() for t in cl})
     log.info("Clustered tickers in 2025 (%d): %s", len(clustered), clustered)
@@ -122,6 +158,10 @@ def main() -> None:
             fundamentals_provider=fund_provider,
             liquidity_provider=liq_provider,
             industry_provider=ind_provider,
+            cluster_window_days=CFG["cluster_window_days"],
+            track_b_min_usd=CFG["track_b_min_usd"],
+            track_a_min_distinct=CFG["track_a_min_distinct"],
+            fscore_threshold=CFG["fscore_threshold"],
         )
         signals[d] = sig
         holdings_by_date[r] = [(h.ticker, h.weight) for h in sig.holdings]
@@ -192,6 +232,8 @@ def main() -> None:
         "slippage_bps": SLIPPAGE_BPS,
         "commission_bps": COMMISSION_BPS,
         "initial_capital": INIT_CASH,
+        "variant": VARIANT,
+        "variant_config": CFG,
     }
     engine.write_outputs(out_dir, art, meta)
     log.info("\n=== DONE === outputs in %s", out_dir)

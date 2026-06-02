@@ -61,6 +61,7 @@ def detect_clusters(
     classifications: dict[str, str],  # cik → "opportunistic"|"routine"|"unclassified"
     window_days: int = 7,
     track_b_min_usd: float = _TRACK_B_MIN_USD,
+    track_a_min_distinct: int = 3,
 ) -> list[Cluster]:
     """
     Detect Track A and Track B insider clusters.
@@ -72,9 +73,11 @@ def detect_clusters(
     classifications:
         Mapping from CIK to CMP classification string.
     window_days:
-        Rolling window size for Track A (default 7 calendar days).
+        Rolling window size for Track A (default 7 calendar days; v2.1 uses 14).
     track_b_min_usd:
-        Minimum value_usd for a Track B C-suite buy (default $250 000).
+        Minimum value_usd for a Track B C-suite buy (default $250 000; v2.1 $100k).
+    track_a_min_distinct:
+        Minimum distinct opportunistic buyers for Track A (default 3; v2.1 uses 2).
 
     Returns
     -------
@@ -101,7 +104,7 @@ def detect_clusters(
             window = [t for t in opp_txns[i:] if t.transaction_date <= cutoff]
             distinct_ciks = {t.cik for t in window}
 
-            if len(distinct_ciks) >= 3:
+            if len(distinct_ciks) >= track_a_min_distinct:
                 clusters.append(
                     Cluster(
                         ticker=ticker,

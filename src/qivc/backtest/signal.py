@@ -151,6 +151,8 @@ def clusters_as_of(
     lookback_days: int = 14,
     cmp_history_years: int = 3,
     cluster_window_days: int = 7,
+    track_b_min_usd: float = 250_000.0,
+    track_a_min_distinct: int = 3,
 ) -> dict[str, Cluster]:
     """
     Detect insider clusters as of ``as_of`` from the bulk store only (no EDGAR/
@@ -164,7 +166,13 @@ def clusters_as_of(
     txns = [t for t in txns if t.ticker in universe]
     cluster_input = dedupe_by_accession(txns)
     classifications = _classify_window(db_path, cluster_input, as_of, cmp_history_years)
-    clusters = detect_clusters(cluster_input, classifications, window_days=cluster_window_days)
+    clusters = detect_clusters(
+        cluster_input,
+        classifications,
+        window_days=cluster_window_days,
+        track_b_min_usd=track_b_min_usd,
+        track_a_min_distinct=track_a_min_distinct,
+    )
     return {c.ticker: c for c in clusters}
 
 
@@ -181,6 +189,10 @@ def qivc_signal_as_of(
     lookback_days: int = 14,
     cmp_history_years: int = 3,
     cluster_window_days: int = 7,
+    track_b_min_usd: float = 250_000.0,
+    track_a_min_distinct: int = 3,
+    fscore_threshold: int = _FSCORE_THRESHOLD,
+    gpa_median: float = _GPA_INDUSTRY_MEDIAN,
     force: bool = False,
 ) -> SignalResult:
     """Evaluate the full QIVC signal as of ``as_of`` (no look-ahead)."""
@@ -209,6 +221,8 @@ def qivc_signal_as_of(
         lookback_days=lookback_days,
         cmp_history_years=cmp_history_years,
         cluster_window_days=cluster_window_days,
+        track_b_min_usd=track_b_min_usd,
+        track_a_min_distinct=track_a_min_distinct,
     )
     diagnostics["n_clustered_tickers"] = len(clusters_by_ticker)
 
@@ -247,8 +261,8 @@ def qivc_signal_as_of(
         )
 
         results = [
-            fscore_mod.apply(ci, threshold=_FSCORE_THRESHOLD),
-            gpa_mod.apply(ci, _GPA_INDUSTRY_MEDIAN),
+            fscore_mod.apply(ci, threshold=fscore_threshold),
+            gpa_mod.apply(ci, gpa_median),
             valuation_mod.apply(ci),  # UNVERIFIABLE (no sector median)
             revisions_mod.apply(ci),  # UNVERIFIABLE (None deltas)
             _unverifiable_si_result(),  # injected UNVERIFIABLE (no PIT SI data)

@@ -269,3 +269,17 @@ def test_three_distinct_filings_still_trip_track_a_after_dedup() -> None:
     classifications = {"D1": "opportunistic", "D2": "opportunistic", "D3": "opportunistic"}
     clusters = detect_clusters(dedupe_by_accession(txns), classifications, window_days=7)
     assert any(c.track == "A" for c in clusters)
+
+
+def test_track_a_min_distinct_param_v21() -> None:
+    """v2.1 loosening: track_a_min_distinct=2 forms Track A on 2 distinct buyers."""
+    txns = [
+        _txn_acc("A1", "ACC-1", d=_BASE_DATE),
+        _txn_acc("A2", "ACC-2", d=_BASE_DATE + timedelta(days=3)),
+    ]
+    cls = {"A1": "opportunistic", "A2": "opportunistic"}
+    # default (>=3): no Track A
+    assert not any(c.track == "A" for c in detect_clusters(txns, cls, window_days=14))
+    # v2.1 (>=2): Track A forms
+    out = detect_clusters(txns, cls, window_days=14, track_a_min_distinct=2)
+    assert any(c.track == "A" for c in out)
