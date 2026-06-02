@@ -197,3 +197,91 @@ def test_grid_cache_present_means_no_network(tmp_path: Path) -> None:
     # in this offline test env) and produces holdings.
     res = _run(tmp_path, [GridConfig(10, 60, 90)])
     assert res["N10_thr60_hold90"]["total_trades"] >= 1  # the 3 seeded names get held
+
+
+def test_grid_drops_untradeable_late_listing(tmp_path: Path) -> None:
+    """
+    A name with NO point-in-time price at its rebalance date must NOT be traded
+    (regression for the bfill look-ahead: backfilling pre-listing dates with future
+    prices). LATE has insider activity from Jan but price data only from March.
+    """
+    late = "PRME"  # a real IWM-ex-Fin/RE ticker not in _TICKERS
+    db = str(tmp_path / "bulk.db")
+    _seed_bulk(db)
+    # add LATE insider history + a Jan recent buy (so it is insider-active in Jan/Feb)
+    with get_connection(db) as c:
+        rows = [(late, dt.date(y, 2, 1)) for y in (2022, 2023, 2024)] + [
+            (late, dt.date(2025, 1, 10))
+        ]
+        for tk, filed in rows:
+            c.execute(
+                """INSERT INTO form4_historical (cik,name,title,ticker,shares,price,value_usd,
+                   transaction_date,filed_date,transaction_code,is_director,is_officer,
+                   is_ten_percent_owner,accession_number,source_quarter)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                [
+                    "900",
+                    "Ins 900",
+                    "CEO",
+                    tk,
+                    1000.0,
+                    50.0,
+                    300_000.0,
+                    filed,
+                    filed,
+                    "P",
+                    False,
+                    True,
+                    False,
+                    f"ACC-900-{filed}",
+                    "x",
+                ],
+            )
+        c.commit()
+    cache_root = tmp_path / "cache"
+    _seed_cache(cache_root)
+    # give LATE price data only from March (NaN before) in the active-price cache
+    root = providers.BacktestCache(cache_root)
+    close = pd.read_csv(root.dir / "prices.csv", index_col=0, parse_dates=True)
+    idx = close.index
+    late_px = pd.Series([float("nan")] * len(idx), index=idx)
+    late_px.loc[idx >= pd.Timestamp("2025-03-01")] = 20.0
+    close[late] = late_px
+    close.to_csv(root.dir / "prices.csv")
+    # fundamentals for LATE
+    funds = root.get_json("fundamentals")
+    f = Fundamentals(
+        ticker=late,
+        fiscal_period="PIT",
+        roa=0.1,
+        ocf=1e6,
+        delta_roa=0.01,
+        ocf_gt_ni=True,
+        delta_leverage=-0.01,
+        delta_liquidity=0.1,
+        no_share_issuance=True,
+        delta_gross_margin=0.01,
+        delta_asset_turnover=0.01,
+        gross_profit=3e8,
+        total_assets=1e9,
+    )
+    for r in ("2025-01-01", "2025-02-03", "2025-03-03"):
+        funds[f"{late}|{r}"] = json.loads(f.model_dump_json())
+    root.put_json("fundamentals", funds)
+
+    res = run_backtest_grid(
+        _YEAR,
+        [GridConfig(10, 60, 90)],
+        db_path=db,
+        edgar_user_agent="x x@x.com",
+        months=_MONTHS,
+        out_root=str(tmp_path / "out"),
+        cache_root=str(cache_root),
+    )
+    trades = pd.read_csv(tmp_path / "out" / f"v3_{_YEAR}_N10_thr60_hold90" / "trades.csv")
+    late_trades = trades[trades["ticker"] == late] if not trades.empty else trades
+    # LATE may be held from March onward, but NEVER entered before its first price (March).
+    for _, row in late_trades.iterrows():
+        assert pd.Timestamp(row["entry_date"]) >= pd.Timestamp("2025-03-01"), (
+            "traded a name before it had price data (bfill look-ahead)"
+        )

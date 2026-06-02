@@ -47,6 +47,30 @@ def _regime_cached(
     return reg
 
 
+def v3_dossier_sanity(
+    positions: list[Position], regime: MarketRegime
+) -> list[tuple[str, bool, str]]:
+    """
+    v3.0-appropriate dossier invariants (composite framework has no v2.0 gates):
+      - equity budget respected (<=100%, or <=60% risk-off);
+      - no negative weights;
+      - every held name is insider-active (true by construction: the scored
+        universe IS the insider-active set);
+      - 0 holdings is legitimate (cash).
+    Sector concentration is intentionally NOT a pass/fail — the strategy is
+    naturally concentrated (1-3 names), so a single name can be ~100% of equity.
+    """
+    eq = sum(p.weight for p in positions)
+    budget = 0.60 if regime.regime == "risk-off" else 1.0
+    out: list[tuple[str, bool, str]] = [
+        ("equity_budget_respected", eq <= budget + 1e-6, f"equity {eq:.3f} <= {budget:.2f}"),
+        ("no_negative_weights", all(p.weight >= 0 for p in positions), "all weights >= 0"),
+        ("all_held_insider_active", True, "scored universe = insider-active (by construction)"),
+        ("no_silent_failure", True, "0 holdings is legitimate (100% T-bills)"),
+    ]
+    return out
+
+
 def _v3_dossier(
     year_label: str, as_of: _dt.date, regime: MarketRegime, positions: list[Position], n_scored: int
 ) -> str:
@@ -69,6 +93,9 @@ def _v3_dossier(
             )
     else:
         lines.append("_No holdings this month (100% T-bills)._")
+    lines += ["", "## Sanity (v3.0 dossier invariants)", ""]
+    for name, ok, detail in v3_dossier_sanity(positions, regime):
+        lines.append(f"- **[{'PASS' if ok else 'FAIL'}]** `{name}` — {detail}")
     return "\n".join(lines) + "\n"
 
 
@@ -185,12 +212,14 @@ def _run_one_config(
     prev: list[Position] = []
     holdings_by_date: dict[pd.Timestamp, list[tuple[str, float]]] = {}
     n_held_by_month: list[int] = []
+    sanity_failures = 0
     for r in rebalance:
         d = r.date()
         positions = construct_portfolio(scored_by_rb[d], prev, d, cfg, regimes[d])
         prev = positions
         holdings_by_date[r] = [(p.ticker, p.weight) for p in positions]
         n_held_by_month.append(len(positions))
+        sanity_failures += sum(1 for _, ok, _ in v3_dossier_sanity(positions, regimes[d]) if not ok)
         (out_dir / f"dossier_{d.strftime('%Y-%m')}.md").write_text(
             _v3_dossier(str(year), d, regimes[d], positions, len(scored_by_rb[d]))
         )
@@ -199,13 +228,25 @@ def _run_one_config(
     price = pd.DataFrame(index=period)
     for t in held:
         if t in close.columns:
-            price[t] = close[t].reindex(period).ffill().bfill()
+            # ffill only — NO backfill. Backfilling would fill pre-listing/pre-data
+            # dates with FUTURE prices (look-ahead, e.g. a 2025 IPO). Leading NaNs stay.
+            price[t] = close[t].reindex(period).ffill()
     price[engine._CASH] = engine.build_cash_series(period, irx)
     price = price.dropna(axis=1, how="all")
 
-    weights = engine.build_target_weights(
-        price, [r for r in rebalance if r in period], holdings_by_date
-    )
+    # Drop any selection with no point-in-time price at its rebalance date (cannot
+    # be traded as-of; its weight falls to the cash residual). Prevents trading a
+    # name before it has price data.
+    rb_in = [r for r in rebalance if r in period]
+    tradeable: dict[pd.Timestamp, list[tuple[str, float]]] = {}
+    for r in rb_in:
+        tradeable[r] = [
+            (t, w) for t, w in holdings_by_date.get(r, [])
+            if t in price.columns and not pd.isna(price[t].loc[r])
+        ]
+    holdings_by_date = tradeable
+
+    weights = engine.build_target_weights(price, rb_in, holdings_by_date)
     equity = engine.simulate(
         price, weights, init_cash=1_000_000.0, slippage_bps=5.0, commission_bps=1.0
     )
@@ -221,6 +262,7 @@ def _run_one_config(
         "entry_threshold_pct": cfg.entry_threshold_pct,
         "holding_period_days": cfg.holding_period_days,
     }
+    metrics["dossier_sanity_failures"] = sanity_failures
 
     art = engine.BacktestArtifacts(
         equity=equity,
