@@ -438,3 +438,31 @@ they were previously suppressed.
 **Note.** Duration is no longer computed anywhere; `years_of_history` is now a
 distinct-year count throughout. The field is retained on `InsiderHistory` for the
 audit trail; the classifiability gate is computed per-candidate in `classify`.
+
+### Verification (full-universe re-run, 2026-06-02)
+
+Re-ran the same 14-day screen after the fix (`0259f310`) and compared to the
+pre-fix run (`4eff2c27`). Same 19,157 filings / 975 P-txns / 498 distinct CIKs.
+
+| Metric | `4eff2c27` (duration proxy) | `0259f310` (distinct-year) |
+|---|---|---|
+| Opportunistic (distinct CIK) | **4** | **55** |
+| Routine (distinct CIK) | 0 | 11 |
+| Unclassified (distinct CIK) | 494 | 432 |
+| Classifiable (≥3 yrs) | 4 | **66** |
+| Track A clusters | **0** | **1** (UBCP) |
+| Track B clusters | **0** | **3** (ENPH, NXDT, PSEC) |
+| Tickers passing `insider_conviction` | 0 | **4** |
+| Per-gate rejections | insider_conviction 358 | insider_conviction 354, **valuations 4** |
+| Candidates | 0 | 0 |
+| Runtime | ~58 min | **~24 min** (history now bulk-served) |
+
+The split is now meaningful (routine/opportunistic both populated; heavy repeat
+traders correctly resolve to routine). **Clusters now form** where the duration
+proxy structurally suppressed them — e.g. Track B on ENPH (CEO Kothandaraman,
+$337K), PSEC (Chairman/CEO John Barry, $1.997M), NXDT ($262K), and a Track A
+cluster on UBCP (5 opportunistic insiders). All four were then rejected at the
+**valuations** gate — so the universe still yields **0 candidates**, but now for
+a substantive valuation reason rather than a classifier artifact. Run status
+`completed`; all sanity invariants pass. The classifier is now trustworthy for
+the backtest.
