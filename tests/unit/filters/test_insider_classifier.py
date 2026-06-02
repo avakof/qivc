@@ -64,14 +64,16 @@ def test_mandatory_routine_may_three_consecutive_years() -> None:
 
 def test_mandatory_opportunistic_gap_in_2024() -> None:
     """
-    Insider with trades in May 2023, May 2025 (gap in 2024) →
-    new May 2026 trade MUST be classified as OPPORTUNISTIC.
+    Insider who traded in ≥3 distinct prior calendar years but did NOT trade in
+    May 2024 (gap year) → new May 2026 trade MUST be OPPORTUNISTIC. The 2022 buy
+    makes them classifiable (3 distinct prior years) without filling the 2024 gap.
     """
     cik = "22222"
     candidate_txn = _txn(cik, date(2026, 5, 15))
     prior_trades = [
+        _txn(cik, date(2022, 5, 9)),  # year -4: makes 3 distinct prior years
         _txn(cik, date(2023, 5, 10)),
-        # No May 2024 trade
+        # No 2024 trade at all → routine May-pattern is broken
         _txn(cik, date(2025, 5, 12)),
     ]
     history = _history(cik, prior_trades, years=3)
@@ -152,12 +154,46 @@ def test_same_month_wrong_year_not_counted() -> None:
     assert classify(candidate_txn, history) == "opportunistic"
 
 
-def test_empty_history_with_sufficient_years_opportunistic() -> None:
-    """History years >= 3 but no trades in the relevant months → opportunistic."""
+def test_empty_history_is_unclassified() -> None:
+    """
+    No transactions → 0 distinct prior years → unclassified. (Post-OQ-4: the
+    years measure is computed from the transactions themselves, so an empty
+    history can never be classifiable, regardless of any passed-in field.)
+    """
     cik = "88888"
     candidate_txn = _txn(cik, date(2026, 5, 15))
-    history = _history(cik, [], years=3)  # no transactions at all
-    assert classify(candidate_txn, history) == "opportunistic"
+    history = _history(cik, [], years=3)  # passed years is ignored now
+    assert classify(candidate_txn, history) == "unclassified"
+
+
+def test_insider_with_4_distinct_years_is_classifiable() -> None:
+    """Buys in 4 distinct prior calendar years → classifiable (not unclassified)."""
+    cik = "40404"
+    candidate_txn = _txn(cik, date(2026, 5, 15))
+    prior_trades = [
+        _txn(cik, date(2022, 3, 1)),
+        _txn(cik, date(2023, 7, 2)),
+        _txn(cik, date(2024, 9, 3)),
+        _txn(cik, date(2025, 11, 4)),
+    ]
+    history = _history(cik, prior_trades, years=0)  # field ignored; measured from txns
+    result = classify(candidate_txn, history)
+    assert result != "unclassified"
+    assert result == "opportunistic"  # different months each year → not routine
+
+
+def test_insider_with_only_2023_buys_is_unclassified() -> None:
+    """All activity in a single calendar year → 1 distinct prior year → unclassified."""
+    cik = "20233"
+    candidate_txn = _txn(cik, date(2026, 5, 15))
+    prior_trades = [
+        _txn(cik, date(2023, 2, 1)),
+        _txn(cik, date(2023, 5, 1)),
+        _txn(cik, date(2023, 8, 1)),
+        _txn(cik, date(2023, 11, 1)),  # many buys, but all in 2023
+    ]
+    history = _history(cik, prior_trades, years=0)
+    assert classify(candidate_txn, history) == "unclassified"
 
 
 @pytest.mark.parametrize("years", [0, 1, 2])

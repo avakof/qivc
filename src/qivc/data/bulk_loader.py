@@ -146,6 +146,12 @@ def quarter_end_date(quarter: str) -> _dt.date:
     return _dt.date(year, end_month + 1, 1) - _dt.timedelta(days=1)
 
 
+def quarter_start_date(quarter: str) -> _dt.date:
+    """First calendar day of the quarter, e.g. '2023q1' -> 2023-01-01."""
+    year, qnum = parse_quarter(quarter)
+    return _dt.date(year, (qnum - 1) * 3 + 1, 1)
+
+
 def next_quarter(quarter: str) -> str:
     year, qnum = parse_quarter(quarter)
     return f"{year + 1}q1" if qnum == 4 else f"{year}q{qnum + 1}"
@@ -586,6 +592,23 @@ def bulk_cutover_date(db_path: str) -> _dt.date | None:
     if not quarters:
         return None
     return quarter_end_date(max(quarters, key=_quarter_sort_key))
+
+
+def earliest_complete_quarter_start(db_path: str) -> _dt.date | None:
+    """
+    Start date of the earliest **complete** quarter in the store, or ``None`` if
+    none. This is the principled coverage floor for CMP history (a complete
+    quarter covers its whole calendar span), unlike ``earliest_filed_date`` which
+    returns the accidental date of the first actual filing (e.g. 2023-01-03).
+    """
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT quarter FROM bulk_load_progress WHERE status = 'complete'"
+        ).fetchall()
+    quarters = [str(r[0]) for r in rows]
+    if not quarters:
+        return None
+    return quarter_start_date(min(quarters, key=_quarter_sort_key))
 
 
 def earliest_filed_date(db_path: str) -> _dt.date | None:

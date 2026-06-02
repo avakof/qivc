@@ -397,3 +397,44 @@ sector base rates) that the current implementation does not evaluate.
 **No code change.** Document and defer to v2.1; requires an explicit brief
 update before any strategy change (cf. OQ-1's bypass-path discussion — both
 concern whether a hard rule should admit a borderline-but-informed signal).
+
+---
+
+## OQ-4 — `years_of_history` duration proxy structurally blocked CMP — **RESOLVED**
+
+**Surfaced by:** diagnostics on the first full-universe run (`4eff2c27`,
+2026-06-02). Of 498 distinct insiders, only **4** reached `years_of_history >= 3`;
+**510 of 515** ticker-CIK rows were "unclassified" — including CIKs with **2,256
+prior buys across 4 calendar years** and one with **16 distinct years** of
+history. With essentially no insiders classifiable, **Track A clusters could
+never form**, so the screen's "0 candidates" was partly an artifact.
+
+**Root cause.** `years_of_history` was a **duration proxy** —
+`floor((today - earliest_filed_in_window) / 365.25)` over a rolling
+`[today - 3×365.25, cutover]` window. Because the bulk store starts 2023q1 and
+today is mid-2026, the window's old edge (~2023-06) sits right at the store's
+depth, so the measure only reached 3 if an insider's earliest in-window filing
+fell within ~3 days of the edge. It answered the wrong question (elapsed time
+since first trade) instead of CMP's actual one (**did they trade across the
+prior calendar years?**).
+
+**Fix.** Replaced the proxy with a **distinct prior-calendar-year count**
+(`insider_classifier.compute_years_of_history`): the number of distinct calendar
+years, strictly before the candidate's year, in which the insider made a P-code
+purchase. The classifier computes this directly from the transactions per
+candidate; `InsiderHistoryAgent` populates the audit/display field with the same
+measure and now reads a **calendar-year-aligned** history window (Jan 1 of
+`year − 3`) so the earliest year is fully captured. This is **closer to literal
+CMP** ("traded in each of the prior three consecutive years") than the duration
+proxy, and removes the structural cap at the store's depth.
+
+**Expected outcome:** the classification rate rises substantially; the
+routine/opportunistic split becomes meaningful instead of overwhelmingly
+unclassified. Heavy institutional repeat-traders should now resolve to
+**routine** (still excluded from opportunistic), while genuine multi-year
+opportunistic buyers become visible — making **Track A clusters possible** where
+they were previously suppressed.
+
+**Note.** Duration is no longer computed anywhere; `years_of_history` is now a
+distinct-year count throughout. The field is retained on `InsiderHistory` for the
+audit trail; the classifiability gate is computed per-candidate in `classify`.

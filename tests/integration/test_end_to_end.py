@@ -121,8 +121,32 @@ def _make_good_fundamentals(ticker: str) -> Fundamentals:
 
 
 def _make_history(cik: str, years: int = 3) -> InsiderHistory:
-    """Return a history that classifies as opportunistic (no repeated-month pattern)."""
-    return InsiderHistory(cik=cik, transactions=[], years_of_history=years)
+    """
+    History with P-buys in 3 distinct prior calendar years, all in February (NOT
+    the candidate's May) → classifiable (≥3 distinct prior years) but OPPORTUNISTIC
+    (the same-month routine pattern is absent). Post-OQ-4 the classifier measures
+    years from these transactions, so the history must contain real prior trades.
+    """
+    yr = date.today().year
+    txns = [
+        InsiderTransaction(
+            cik=cik,
+            name="Prior Buyer",
+            title="CEO",
+            ticker="HIST",
+            shares=100.0,
+            price=10.0,
+            value_usd=1000.0,
+            transaction_date=date(yr - k, 2, 1),
+            filed_date=date(yr - k, 2, 1),
+            transaction_code="P",
+            is_director=False,
+            is_officer=True,
+            is_ten_percent_owner=False,
+        )
+        for k in (1, 2, 3)
+    ]
+    return InsiderHistory(cik=cik, transactions=txns, years_of_history=years)
 
 
 def _make_settings(db_path: str) -> Any:

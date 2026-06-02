@@ -97,7 +97,30 @@ def _make_agents() -> Any:
         return _base_txns()
 
     async def history_fetch(**kw: Any) -> InsiderHistory:
-        return InsiderHistory(cik=kw.get("cik", "0"), transactions=[], years_of_history=3)
+        # P-buys in 3 distinct prior calendar years (February, not the candidate's
+        # May) → classifiable but opportunistic. Post-OQ-4 the classifier measures
+        # years from these transactions, so the history needs real prior trades.
+        cik = kw.get("cik", "0")
+        yr = date.today().year
+        txns = [
+            InsiderTransaction(
+                cik=cik,
+                name="Prior Buyer",
+                title="CEO",
+                ticker="RES",
+                shares=100.0,
+                price=10.0,
+                value_usd=1000.0,
+                transaction_date=date(yr - k, 2, 1),
+                filed_date=date(yr - k, 2, 1),
+                transaction_code="P",
+                is_director=False,
+                is_officer=True,
+                is_ten_percent_owner=False,
+            )
+            for k in (1, 2, 3)
+        ]
+        return InsiderHistory(cik=cik, transactions=txns, years_of_history=3)
 
     async def fund_fetch(**kw: Any) -> Fundamentals:
         return _fundamentals_for(kw.get("ticker", "RES"))

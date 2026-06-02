@@ -578,7 +578,7 @@ async def test_fetch_merges_bulk_and_live_delta(tmp_path: Path) -> None:
     client.get_form4_filings = mock.AsyncMock(
         return_value=_Collection([_live_filing("LIVE1", "999")])
     )
-    agent = Form4Agent(client=client, db_path=db)
+    agent = Form4Agent(client=client, db_path=db, recovery_dir=str(tmp_path))
 
     # Large lookback so the window start precedes 2024-03-31 (the bulk cutover).
     result = await agent.fetch(ticker=None, lookback_days=1000)
@@ -598,7 +598,7 @@ async def test_fetch_bulk_wins_on_overlap(tmp_path: Path) -> None:
     client.get_form4_filings = mock.AsyncMock(
         return_value=_Collection([_live_filing("BULK1", "111")])
     )
-    agent = Form4Agent(client=client, db_path=db)
+    agent = Form4Agent(client=client, db_path=db, recovery_dir=str(tmp_path))
     result = await agent.fetch(ticker=None, lookback_days=1000)
 
     matches = [t for t in result if t.cik == "111" and t.accession_number == "BULK1"]
@@ -612,7 +612,7 @@ async def test_fetch_live_only_when_window_after_cutover(tmp_path: Path) -> None
     client.get_form4_filings = mock.AsyncMock(
         return_value=_Collection([_live_filing("LIVE9", "999")])
     )
-    agent = Form4Agent(client=client, db_path=db)
+    agent = Form4Agent(client=client, db_path=db, recovery_dir=str(tmp_path))
     result = await agent.fetch(ticker=None, lookback_days=14)  # May 2026 window
 
     ciks = {t.cik for t in result}

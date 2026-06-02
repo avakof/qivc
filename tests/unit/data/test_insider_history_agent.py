@@ -79,42 +79,49 @@ def _make_filing_with_p(
     return filing
 
 
+def _yr(year: int, month: int = 6, day: int = 1) -> str:
+    """ISO date string for a fixed calendar year (post-OQ-4 the measure counts
+    distinct prior calendar years, so fixtures use explicit years)."""
+    return date(year, month, day).isoformat()
+
+
+_THIS_YEAR = date.today().year
+
+
 async def test_insider_history_returns_correct_cik() -> None:
-    # Earliest filing ~3 years + 1 month ago → years_of_history == 3.
-    filings = [_make_filing_with_p(_days_ago(int(3 * 365.25) + 30), cik="99999", ticker="FCN")]
-    collection = _Collection(filings)
-
+    # Buys in 3 distinct prior calendar years → years_of_history == 3.
+    filings = [
+        _make_filing_with_p(_yr(_THIS_YEAR - 1), cik="99999", ticker="FCN"),
+        _make_filing_with_p(_yr(_THIS_YEAR - 2), cik="99999", ticker="FCN"),
+        _make_filing_with_p(_yr(_THIS_YEAR - 3), cik="99999", ticker="FCN"),
+    ]
     client = mock.AsyncMock()
-    client.get_insider_history = mock.AsyncMock(return_value=collection)
-
+    client.get_insider_history = mock.AsyncMock(return_value=_Collection(filings))
     agent = InsiderHistoryAgent(client=client)
 
     result: InsiderHistory = await agent.fetch(cik="99999", years=3)
 
     assert result.cik == "99999"
     assert result.years_of_history == 3
-    assert len(result.transactions) == 1
+    assert len(result.transactions) == 3
     assert result.transactions[0].cik == "99999"
 
 
-async def test_insider_history_multiple_filings_uses_earliest() -> None:
-    # Two filings; earliest is ~3.5 years old → years_of_history >= 3.
+async def test_insider_history_counts_distinct_calendar_years() -> None:
+    # Multiple filings spread over 2 distinct prior years → years_of_history == 2,
+    # regardless of how many filings (post-OQ-4: count of distinct years, not span).
     filings = [
-        _make_filing_with_p(_days_ago(400), cik="12345", ticker="FCN", shares=500.0, price=80.0),
-        _make_filing_with_p(
-            _days_ago(int(3 * 365.25) + 90), cik="12345", ticker="FCN", shares=1500.0, price=70.0
-        ),
+        _make_filing_with_p(_yr(_THIS_YEAR - 1, 3), cik="12345", ticker="FCN"),
+        _make_filing_with_p(_yr(_THIS_YEAR - 1, 9), cik="12345", ticker="FCN"),  # same year
+        _make_filing_with_p(_yr(_THIS_YEAR - 3), cik="12345", ticker="FCN"),
     ]
-    collection = _Collection(filings)
-
     client = mock.AsyncMock()
-    client.get_insider_history = mock.AsyncMock(return_value=collection)
-
+    client.get_insider_history = mock.AsyncMock(return_value=_Collection(filings))
     agent = InsiderHistoryAgent(client=client)
 
     result = await agent.fetch(cik="12345", years=3)
-    assert len(result.transactions) == 2
-    assert result.years_of_history >= 3  # driven by the OLDEST filing
+    assert len(result.transactions) == 3
+    assert result.years_of_history == 2  # only 2 distinct calendar years
 
 
 async def test_insider_history_empty_filings_is_zero_years() -> None:
@@ -132,8 +139,8 @@ async def test_insider_history_empty_filings_is_zero_years() -> None:
 
 
 async def test_years_of_history_six_months_returns_zero() -> None:
-    """An insider with only ~6 months of Form 4 history → years_of_history == 0."""
-    filings = [_make_filing_with_p(_days_ago(183), cik="55555", ticker="FCN")]
+    """Activity only in the current calendar year → 0 distinct PRIOR years."""
+    filings = [_make_filing_with_p(_yr(_THIS_YEAR, 1, 2), cik="55555", ticker="FCN")]
     collection = _Collection(filings)
 
     client = mock.AsyncMock()
@@ -145,10 +152,12 @@ async def test_years_of_history_six_months_returns_zero() -> None:
 
 
 async def test_years_of_history_four_years_returns_four() -> None:
-    """An insider whose earliest filing is 4+ years old → years_of_history >= 4."""
+    """Buys in 4 distinct prior calendar years → years_of_history == 4."""
     filings = [
-        _make_filing_with_p(_days_ago(int(4 * 365.25) + 15), cik="44444", ticker="FCN"),
-        _make_filing_with_p(_days_ago(200), cik="44444", ticker="FCN"),  # a recent one too
+        _make_filing_with_p(_yr(_THIS_YEAR - 1), cik="44444", ticker="FCN"),
+        _make_filing_with_p(_yr(_THIS_YEAR - 2), cik="44444", ticker="FCN"),
+        _make_filing_with_p(_yr(_THIS_YEAR - 3), cik="44444", ticker="FCN"),
+        _make_filing_with_p(_yr(_THIS_YEAR - 4), cik="44444", ticker="FCN"),
     ]
     collection = _Collection(filings)
 
@@ -157,7 +166,7 @@ async def test_years_of_history_four_years_returns_four() -> None:
 
     agent = InsiderHistoryAgent(client=client)
     result = await agent.fetch(cik="44444", years=3)
-    assert result.years_of_history >= 4
+    assert result.years_of_history == 4
 
 
 async def test_insider_history_client_error_raises() -> None:
@@ -241,18 +250,18 @@ def _insert_hist_row(conn: Any, cik: str, filed: date, ticker: str = "AAA") -> N
 
 
 def _bulk_store(tmp_path: Path, rows: list[tuple[str, date]], *, cover: bool = True) -> str:
-    """Create a form4_historical store. If cover=True, add an anchor row old
-    enough that the store reaches back past the 3-year CMP window."""
+    """
+    Create a form4_historical store. Coverage is quarter-based (post-OQ-4): when
+    cover=True the earliest complete quarter is the calendar-year-3 quarter, so
+    the CMP window is covered; when cover=False only a recent quarter is complete,
+    so the store is too shallow and the agent falls back to live.
+    """
     db = str(tmp_path / "qivc.db")
     now = _datetime(2026, 5, 1)
+    earliest_q = f"{date.today().year - 3}q1" if cover else "2026q1"
     with _get_conn(db) as conn:
-        conn.execute(
-            "INSERT INTO bulk_load_progress VALUES (?,?,?,?)",
-            ["2026q1", now, 0, "complete"],
-        )
-        if cover:
-            # Anchor well before today-3yr so earliest_filed_date covers the window.
-            _insert_hist_row(conn, "999999", date.today() - timedelta(days=1300), "ZZZ")
+        for q in {earliest_q, "2026q1"}:
+            conn.execute("INSERT INTO bulk_load_progress VALUES (?,?,?,?)", [q, now, 0, "complete"])
         for cik, filed in rows:
             _insert_hist_row(conn, cik, filed)
         conn.commit()
@@ -277,13 +286,13 @@ async def test_insider_history_uses_bulk_when_available(tmp_path: Path) -> None:
 
 
 async def test_insider_history_bulk_satisfies_3yr_window(tmp_path: Path) -> None:
-    """A CIK whose earliest in-window filing is ~3yr old yields years_of_history>=3."""
-    window_start = date.today() - timedelta(days=round(3 * 365.25))
+    """Buys in 3 distinct prior calendar years in the store → years_of_history>=3."""
     db = _bulk_store(
         tmp_path,
         [
-            ("222", window_start),  # exactly at the window edge → ~3 years deep
-            ("222", date.today() - timedelta(days=200)),
+            ("222", date(_THIS_YEAR - 1, 6, 1)),
+            ("222", date(_THIS_YEAR - 2, 6, 1)),
+            ("222", date(_THIS_YEAR - 3, 6, 1)),
         ],
     )
     client = mock.AsyncMock()
