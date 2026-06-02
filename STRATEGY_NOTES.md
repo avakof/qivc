@@ -507,3 +507,35 @@ that DO have point-in-time data — regime, insider_conviction, F-Score, GP/A,
 liquidity** — and documents the three UNVERIFIABLE gates as a known limitation
 (BACKTEST_LIMITATIONS.md). This deviates from production's 8-gate REQUIRED set; it
 is a backtest-scoped relaxation, not a strategy change.
+
+---
+
+## OQ-6 — Quality core is incompatible with the small-cap insider-cluster universe
+
+**Surfaced by:** the 2025 full-QIVC backtest (Task 10), which made **0 trades** —
+13 names clustered but the quality core rejected all (12 at F-Score, 1 at GP/A).
+
+**Finding.** Among 2025 IWM names with opportunistic insider clusters, **8 of 13
+were Financials or REITs**. Piotroski F-Score and Novy-Marx GP/A are built for
+**non-financial operating companies**: banks/BDCs have no gross-profit line
+(GP/A ≈ 0), and the F-Score gross-margin / asset-turnover / current-ratio
+components are ill-defined for financials. Novy-Marx (2013) explicitly excludes
+financials from the gross-profitability anomaly. So the gates *correctly* reject
+these names — but it means the strategy's quality core and the small-cap
+insider-clustering universe **barely intersect**: opportunistic insider buying in
+small-caps is disproportionately a financials/REIT phenomenon, exactly where the
+quality filter cannot operate.
+
+**v2.1 design question.** Should QIVC:
+- **(a)** exclude Financials/REITs from the universe (honest: the quality core
+  can't judge them) — narrows the strategy to where it has an edge;
+- **(b)** add a **financials-specific quality model** (e.g. ROTCE, efficiency
+  ratio, NPL trends for banks; FFO/AFFO coverage and leverage for REITs) so
+  insider clusters in those sectors can be evaluated;
+- **(c)** accept that the strategy structurally won't trade financials, and
+  expect long cash periods.
+
+**No code change.** Documented; requires a brief update before any strategy
+change. This is the single most consequential finding of the backtest: the
+0-trade result is not a malfunction but a structural mismatch between the signal
+universe (insider clusters) and the quality screen (non-financial value).
