@@ -539,3 +539,66 @@ quality filter cannot operate.
 change. This is the single most consequential finding of the backtest: the
 0-trade result is not a malfunction but a structural mismatch between the signal
 universe (insider clusters) and the quality screen (non-financial value).
+
+---
+
+## Proposed QIVC v3.0 — top-N composite scoring (FUTURE WORK, not implemented)
+
+**Motivation.** Both the strict v2.0 and the loosened v2.1 backtests produced
+**0 trades in 2025** (100% cash, +4.08%, lagging IWN +12.6%). The cause is not
+parameter tuning — it is the **"all gates must pass" framework** combined with a
+quality core (F-Score, GP/A) built for profitable non-financial value stocks,
+applied to an insider-cluster universe dominated by **financials/REITs** (v2.0)
+and, once those are excluded, **unprofitable biotech** (v2.1: 7/11 clustered
+names were negative-ROA Health Care). A hard AND of 5–8 gates means one
+inapplicable gate (GP/A for a bank, positive-ROA for a clinical-stage biotech)
+zeroes the name. **This is a framework problem; v3.0 replaces the boolean gate
+chain with a continuous composite score.**
+
+### Framework (a *framework* change, not a parameter change)
+
+- **Universe:** IWM **excluding Financials and Real Estate** (OQ-6 — the quality
+  factors are undefined there).
+- **Monthly composite score per stock:**
+  - **40% insider signal** — CMP opportunistic activity in the last 90 days,
+    weighted by recency and conviction (cluster size, C-suite, $ size).
+  - **30% quality** — F-Score (normalized 0–1) + GP/A z-score **within sector**.
+  - **20% valuation** — composite of sector-relative P/E, P/B, EV/EBITDA
+    (requires the OQ-5 sector-median pipeline to exist first).
+  - **10% forward momentum** — EPS revisions when available, else 0.
+- **Selection:** rank the universe by score, **hold top N** (default **N=10**),
+  **equal-weight** initially.
+- **Rebalance:** monthly; a stock **stays if still in the top N** — holding period
+  **emerges from score persistence** (no fixed duration).
+- **Risk controls:** **sector cap 30%**; **regime overlay** — risk-off caps total
+  equity exposure at **60%** (rest to T-bills).
+
+### Why this should trade where v2.x can't
+Composite scoring **never hard-rejects** on a single inapplicable factor: a
+strong insider + valuation name with mediocre quality still ranks; a biotech with
+no GP/A simply scores 0 on that sub-component rather than being eliminated. It
+will always hold ~N names (subject to the regime cap), so it produces a testable
+track record instead of cash.
+
+### Validation protocol (anti-overfitting is mandatory)
+- **Cross-validate across regimes:** backtest **2022, 2023, 2024, 2025
+  independently** with the *same* parameters. Robustness across regimes matters
+  more than any single year (2022 = bear/value, 2023–24 = recovery/growth,
+  2025 = growth-led).
+- **Constrained search space:** test only **N ∈ {5, 10, 20}** (3 trials) — do NOT
+  sweep many N values.
+- **Deflated Sharpe Ratio:** apply DSR (Bailey–López de Prado 2014) with the
+  trial count = number of configurations tested (now well-defined, unlike the
+  single-trial v2.x backtest where DSR was null), to haircut for selection.
+- **Report each regime year separately**, with standard errors. Per-name
+  qualitative review remains mandatory.
+- Data prerequisite: bulk store must extend to **(earliest backtest year − 3)**;
+  a 2022 backtest needs 2019+ history bootstrapped.
+
+### Status
+**Not implemented.** Estimated build effort **3–5 days** (composite scorer,
+sector-relative normalization, the OQ-5 sector-median pipeline as a dependency,
+top-N selection engine, 4-year cross-validation harness with DSR). This is a
+**framework change** requiring an explicit brief update and a go-ahead decision —
+gated on the Step 1 outcome above (0 trades → v3.0 is warranted, not urgent vs.
+other work, per the user's call).
