@@ -322,3 +322,78 @@ The full 14-day market-wide live ingest is the remaining long pole and takes
 Until Task 9, run the daily screen on a schedule that tolerates the long live
 ingest (e.g. an overnight cron), or use a shorter `--lookback-days` for
 interactive checks.
+
+---
+
+## The 100-Filing Cap Discovery (Task 8)
+
+**What it was.** From Phase 7 through the first half of this build, the
+market-wide Form 4 scan was hard-capped at `_GLOBAL_SCAN_LIMIT = 100` filings
+per run (`form4_agent.py`). A 14-day window contains **~19,000** Form 4 filings,
+so the cap limited coverage to **~0.5% of the universe** (100 / 19,157 in the
+ground-truth run below).
+
+**Why it mattered — silent invalidation.** Every prior daily-screen analysis in
+this build ran against **~100 filings, not the universe.** Those runs reported
+"0 candidates," but that zero was **uninformative**: it reflected a near-empty
+sample, not the real market. The cap failed silently — no error, a normal-looking
+report — which is the most dangerous kind of bug for a research tool, because the
+output looked authoritative while resting on <1% of the data. Any conclusion
+drawn from a pre-Task-8 screen run should be treated as **void**.
+
+**Resolution (Task 8.1 / 8.2 / 8.3).**
+- **8.1** built the local bulk store (`form4_historical`) from the SEC Insider
+  Transactions Data Sets — 109,261 P-code records, 2023q1–2026q1.
+- **8.2** rewired `Form4Agent` to read the window from the bulk store + live
+  delta and **removed `_GLOBAL_SCAN_LIMIT` entirely**, with co-filer
+  accession-dedup for cluster counting.
+- **8.3** moved the CMP history fetch onto the bulk store (~98× faster) and
+  hardened the live ingest for full-window runs.
+
+**First ground-truth measurement** (run `4eff2c27`, 2026-06-02, 14-day window,
+~58 min):
+
+| Metric | Value |
+|---|---|
+| Filings examined | **19,157** (vs the old 100) |
+| P-code purchases | 975 |
+| Unique insiders classified | **515** |
+| Opportunistic / routine / unclassified | **5 / 0 / 510** |
+| Track A / Track B clusters | 0 / 0 |
+| Candidates | **0 — definitive, not a cap artifact** |
+| Run status / sanity | completed / all PASS |
+
+The zero is now **real**: the full universe was examined, only 5 insiders were
+opportunistic under strict CMP, and none formed a qualifying cluster. Going
+forward, daily screens examine the **full Form 4 universe**; the only remaining
+limitation is *latency* (the live ingest), tracked as Task 9 above — not
+*coverage*.
+
+---
+
+## OQ-3 — Track B size threshold discontinuity
+
+**Surfaced by:** the first full-universe run (`4eff2c27`, 2026-06-02).
+
+Joseph Wm Foran, founder/CEO of **Matador Resources (MTDR)**, made an
+opportunistic open-market purchase of **$244,783**. This is exactly the
+strategic profile Track B is designed to catch (officer, opportunistic,
+founder-level conviction) — but it fell **$217 short** of the hard **$250K**
+threshold and was excluded. (HCWB's Hing C Wong, $160K, missed by more.)
+
+The hard threshold creates a **discontinuity**. Cohen-Malloy-Pomorski does not
+specify a fixed dollar amount; it specifies that the trade be *meaningful*.
+Whether $244,783 is "meaningful" depends on context (insider wealth, market cap,
+sector base rates) that the current implementation does not evaluate.
+
+**v2.1 design question — should Track B's size threshold be:**
+- **(a)** a hard floor, as today;
+- **(b)** a tiered conviction-score adjustment (high size → +conviction; low
+  size → lower conviction but still admitted);
+- **(c)** a wealth-relative threshold;
+- **(d)** a market-cap-tiered threshold (e.g. 0.025 bps of market cap with a
+  $100K minimum)?
+
+**No code change.** Document and defer to v2.1; requires an explicit brief
+update before any strategy change (cf. OQ-1's bypass-path discussion — both
+concern whether a hard rule should admit a borderline-but-informed signal).
