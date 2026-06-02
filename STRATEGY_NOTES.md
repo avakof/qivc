@@ -280,31 +280,45 @@ the ~2 weeks after each quarterly publish, while its larger wins are the CMP
 
 ## Known Bottlenecks
 
-### Per-CIK history fetch is now the dominant cost
+### Per-CIK history fetch — RESOLVED (Task 8.3 part 1)
 
-Task 8.2 rewired `Form4Agent` to use the bulk store. But `InsiderHistoryAgent`
-still fetches each unique insider's 3-year history **live from EDGAR, one
-throttled call per CIK**. For a full 14-day screen surfacing ~1,855 filings with
-many distinct buyers, this dominates wall-clock time. (Observed in the Task 8.2
-verification run: the live Form-4 parse of 1,855 filings finished, then the run
-stalled in `fetch_insider_histories` — per-CIK live calls at ≤8/s with back-off.)
+Task 8.2 rewired `Form4Agent` to use the bulk store, after which
+`InsiderHistoryAgent`'s per-CIK live history fetch became the dominant cost
+(one throttled EDGAR call per distinct buyer; observed stalling the 8.2
+verification run after the Form-4 parse). **Fixed in 8.3 part 1:**
+`InsiderHistoryAgent` now reads the 3-year CMP window from `form4_historical`
+when the store covers it (local disk read, ~15 ms/CIK; ~98× faster than live),
+falling back to live EDGAR only when the store cannot cover the window. See the
+"Per-CIK history" note under the cutover/dedup discussion above.
 
-**The fix:** wire `InsiderHistoryAgent` to read CMP history from
-`form4_historical` (the bulk store already has 3 years of P-code history per
-CIK). The bulk store is local, so per-CIK reads become disk I/O instead of
-network calls. Expected speedup: **minutes → seconds.**
+---
 
-**Scheduled as the top-priority item in Task 8.3**, *before* the original 8.3
-"full-universe comparison" goal: a comparison study is not realistically
-runnable while each screen takes 30–45 minutes, so fixing this bottleneck is a
-prerequisite for the comparison.
+## Daily Screen Operational Performance
 
-### Removing the 100-cap made the full-window live parse slow
+The full 14-day market-wide live ingest is the remaining long pole and takes
+**~40 minutes (best case) to ~3+ hours** depending on rate-limit behaviour:
 
-With `_GLOBAL_SCAN_LIMIT` gone, parsing the full 14-day live window examines
-~19,000 filings (one `obj()` network-parse each) ≈ ~3 hours. This is inherent to
-"remove the cap + quarterly bulk source": the bulk store never holds the current
-trailing window, so the daily market-wide scan is correct-but-slow when the
-window is past the latest bulk quarter. A daily/incremental delta feed (rather
-than waiting for the quarterly publish) is the real fix — future work beyond the
-current task series.
+- Each Form 4's XML is **fetched sequentially from EDGAR** (`filing.obj()`), and
+  the SEC limit is ~8 req/s; a 14-day window is **~19,000 filings**.
+- This is **structural**, not a bug: a quarterly bulk dataset never holds the
+  current (unpublished) quarter, so the trailing daily window is always served
+  live. The bulk store accelerates the *history* lookback and historical /
+  backtest windows, not the current 14-day ingest.
+- The live path is hardened for unattended runs (Task 8.3 part 2): per-filing
+  back-off on 403/429, progress logged + checkpointed every 100 filings / 5 min,
+  and a recovery file (`data/form4_recovery/`) keyed on already-parsed
+  accession numbers so an aborted run **resumes without redoing successful work**.
+
+### Future work — Task 9 (daily-screen latency)
+
+1. **Parallelise the live `obj()` parse** through the rate-limited executor
+   (concurrent up to the 8 req/s ceiling) — roughly **~5× speedup**, bounding the
+   14-day ingest near the ~40-minute rate-limit floor.
+2. **Incremental delta fetch** — persist the last-seen filing cursor and fetch
+   only filings *new since the last run*, turning the daily screen into a
+   **~2–3 minute** incremental job instead of re-parsing the full trailing
+   window each day.
+
+Until Task 9, run the daily screen on a schedule that tolerates the long live
+ingest (e.g. an overnight cron), or use a shorter `--lookback-days` for
+interactive checks.

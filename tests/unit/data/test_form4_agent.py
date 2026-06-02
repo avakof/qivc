@@ -207,7 +207,7 @@ async def test_form4_agent_fetch_returns_only_p_codes() -> None:
     assert all(t.transaction_code == "P" for t in result)
 
 
-async def test_form4_agent_empty_filings() -> None:
+async def test_form4_agent_empty_filings(tmp_path: Path) -> None:
     """Empty filing list should produce empty result, not an error."""
     mock_collection = _Collection([])
 
@@ -217,6 +217,7 @@ async def test_form4_agent_empty_filings() -> None:
     agent = object.__new__(Form4Agent)
     agent._client = client  # type: ignore[attr-defined]
     agent._db_path = None  # type: ignore[attr-defined]  # live-only path
+    agent._recovery_dir = tmp_path  # type: ignore[attr-defined]
 
     result = await agent.fetch(ticker="XYZ", lookback_days=14)
     assert result == []
@@ -616,3 +617,65 @@ async def test_fetch_live_only_when_window_after_cutover(tmp_path: Path) -> None
 
     ciks = {t.cik for t in result}
     assert ciks == {"999"}  # no bulk record (cutover is 2024-03-31)
+
+
+# ---------------------------------------------------------------------------
+# Live-delta recovery / resume (Task 8.3 part 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_live_resumes_and_skips_processed_accessions(tmp_path: Path) -> None:
+    """A pre-existing recovery file makes already-parsed filings skip re-parsing."""
+    from datetime import date, timedelta
+
+    start = date.today() - timedelta(days=14)
+    end = date.today()
+    recovery = tmp_path / f"form4_market_{start}_{end}.json"
+    # One filing ("ACC-OLD") already processed, with one recovered transaction.
+    recovered_txn = {
+        "cik": "111",
+        "name": "Prior",
+        "title": "CEO",
+        "ticker": "AAA",
+        "shares": 10.0,
+        "price": 5.0,
+        "value_usd": 50.0,
+        "transaction_date": start.isoformat(),
+        "filed_date": start.isoformat(),
+        "transaction_code": "P",
+        "is_director": False,
+        "is_officer": True,
+        "is_ten_percent_owner": False,
+        "accession_number": "ACC-OLD",
+    }
+    recovery.write_text(
+        json.dumps({"processed_accessions": ["ACC-OLD"], "transactions": [recovered_txn]})
+    )
+
+    # ACC-OLD's obj() must NOT be called (would raise); ACC-NEW parses fresh.
+    def _boom() -> Any:
+        raise AssertionError("already-processed filing was re-parsed")
+
+    old_filing = SimpleNamespace(filed=start.isoformat(), accession_no="ACC-OLD")
+    old_filing.obj = _boom  # type: ignore[assignment]
+    new_rec = {
+        "issuer": {"ticker": "BBB"},
+        "reporting_owners": [{"cik": "222", "name": "New", "is_officer": True}],
+        "non_derivative_transactions": [
+            {"Code": "P", "Date": end.isoformat(), "Shares": 100.0, "Price": 2.0}
+        ],
+    }
+    new_filing = SimpleNamespace(filed=end.isoformat(), accession_no="ACC-NEW")
+    new_filing.obj = lambda: _make_ownership(new_rec)  # type: ignore[assignment]
+
+    client = mock.AsyncMock()
+    client.get_form4_filings = mock.AsyncMock(return_value=_Collection([old_filing, new_filing]))
+    agent = Form4Agent(client=client, db_path=None, recovery_dir=str(tmp_path))
+
+    result = await agent.fetch(ticker=None, lookback_days=14)
+
+    ciks = {t.cik for t in result}
+    assert "111" in ciks  # recovered transaction carried forward
+    assert "222" in ciks  # freshly parsed filing
+    # Clean completion removes the recovery file.
+    assert not recovery.exists()
