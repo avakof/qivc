@@ -143,6 +143,31 @@ def _unverifiable_revisions(ticker: str) -> EpsRevisions:
     )
 
 
+def clusters_as_of(
+    as_of: _dt.date,
+    *,
+    db_path: str,
+    universe: set[str],
+    lookback_days: int = 14,
+    cmp_history_years: int = 3,
+    cluster_window_days: int = 7,
+) -> dict[str, Cluster]:
+    """
+    Detect insider clusters as of ``as_of`` from the bulk store only (no EDGAR/
+    yfinance). Strictly PIT (filings filed before as_of), universe-restricted.
+    Used both by the full signal and by the backtest's cheap pass-1 (to discover
+    which tickers ever cluster, so expensive PIT fetches are bounded to those).
+    """
+    window_start = as_of - _dt.timedelta(days=lookback_days)
+    txns = bulk_loader.read_purchases(db_path, window_start, as_of)
+    txns = filter_by_filing_date(txns, as_of)
+    txns = [t for t in txns if t.ticker in universe]
+    cluster_input = dedupe_by_accession(txns)
+    classifications = _classify_window(db_path, cluster_input, as_of, cmp_history_years)
+    clusters = detect_clusters(cluster_input, classifications, window_days=cluster_window_days)
+    return {c.ticker: c for c in clusters}
+
+
 def qivc_signal_as_of(
     as_of: _dt.date,
     *,
@@ -177,14 +202,14 @@ def qivc_signal_as_of(
         )
 
     # ---- Insider clustering (bulk store, strictly PIT, restricted to universe) ----
-    window_start = as_of - _dt.timedelta(days=lookback_days)
-    txns = bulk_loader.read_purchases(db_path, window_start, as_of)
-    txns = filter_by_filing_date(txns, as_of)
-    txns = [t for t in txns if t.ticker in universe]
-    cluster_input = dedupe_by_accession(txns)
-    classifications = _classify_window(db_path, cluster_input, as_of, cmp_history_years)
-    clusters = detect_clusters(cluster_input, classifications, window_days=cluster_window_days)
-    clusters_by_ticker: dict[str, Cluster] = {c.ticker: c for c in clusters}
+    clusters_by_ticker = clusters_as_of(
+        as_of,
+        db_path=db_path,
+        universe=universe,
+        lookback_days=lookback_days,
+        cmp_history_years=cmp_history_years,
+        cluster_window_days=cluster_window_days,
+    )
     diagnostics["n_clustered_tickers"] = len(clusters_by_ticker)
 
     # ---- Quality / value / liquidity gates per clustered ticker ----
