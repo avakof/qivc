@@ -588,6 +588,64 @@ def bulk_cutover_date(db_path: str) -> _dt.date | None:
     return quarter_end_date(max(quarters, key=_quarter_sort_key))
 
 
+def earliest_filed_date(db_path: str) -> _dt.date | None:
+    """Earliest ``filed_date`` in the store, or ``None`` if empty. Used to decide
+    whether the bulk store reaches far enough back to cover a CMP lookback."""
+    with get_connection(db_path) as conn:
+        row = conn.execute("SELECT min(filed_date) FROM form4_historical").fetchone()
+    if not row or row[0] is None:
+        return None
+    val = row[0]
+    return val if isinstance(val, _dt.date) else _dt.date.fromisoformat(str(val)[:10])
+
+
+def read_purchases_for_cik(
+    db_path: str,
+    cik: str,
+    start_date: _dt.date,
+    end_date: _dt.date,
+) -> list[InsiderTransaction]:
+    """
+    Read one insider's open-market purchases (filed in ``[start_date, end_date]``)
+    for CMP history. Matches the CIK as stored and zero-stripped, since the bulk
+    store keeps SEC's zero-padded CIKs while callers may pass either form.
+    """
+    cik_stripped = cik.lstrip("0") or "0"
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT cik, name, title, ticker, shares, price, value_usd,
+                   transaction_date, filed_date, transaction_code,
+                   is_director, is_officer, is_ten_percent_owner, accession_number
+            FROM form4_historical
+            WHERE filed_date >= ? AND filed_date <= ?
+              AND ltrim(cik, '0') = ?
+            ORDER BY filed_date
+            """,
+            [start_date, end_date, cik_stripped],
+        ).fetchall()
+    return [_row_to_transaction(r) for r in rows]
+
+
+def _row_to_transaction(r: tuple[object, ...]) -> InsiderTransaction:
+    return InsiderTransaction(
+        cik=str(r[0]),
+        name=str(r[1]),
+        title=str(r[2]),
+        ticker=str(r[3]),
+        shares=float(r[4]),  # type: ignore[arg-type]
+        price=float(r[5]),  # type: ignore[arg-type]
+        value_usd=float(r[6]),  # type: ignore[arg-type]
+        transaction_date=r[7],
+        filed_date=r[8],
+        transaction_code=str(r[9]),
+        is_director=bool(r[10]),
+        is_officer=bool(r[11]),
+        is_ten_percent_owner=bool(r[12]),
+        accession_number=str(r[13]),
+    )
+
+
 def read_purchases(
     db_path: str,
     start_date: _dt.date,
@@ -621,22 +679,4 @@ def read_purchases(
             """,
             params,
         ).fetchall()
-    return [
-        InsiderTransaction(
-            cik=str(r[0]),
-            name=str(r[1]),
-            title=str(r[2]),
-            ticker=str(r[3]),
-            shares=float(r[4]),
-            price=float(r[5]),
-            value_usd=float(r[6]),
-            transaction_date=r[7],
-            filed_date=r[8],
-            transaction_code=str(r[9]),
-            is_director=bool(r[10]),
-            is_officer=bool(r[11]),
-            is_ten_percent_owner=bool(r[12]),
-            accession_number=str(r[13]),
-        )
-        for r in rows
-    ]
+    return [_row_to_transaction(r) for r in rows]

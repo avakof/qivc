@@ -69,7 +69,11 @@ def build_agents(settings: Any) -> Any:
     agents.form4 = Form4Agent(
         client=client, db_path=getattr(settings, "db_path", "data/duckdb/qivc.db")
     )
-    agents.insider_history = InsiderHistoryAgent(client=client)
+    # InsiderHistoryAgent reads CMP 3-year history from the bulk store when it
+    # covers the window, falling back to live EDGAR only when it cannot.
+    agents.insider_history = InsiderHistoryAgent(
+        client=client, db_path=getattr(settings, "db_path", "data/duckdb/qivc.db")
+    )
     agents.fundamentals = FundamentalsAgent(client=client)
     agents.valuation = ValuationAgent(client=client)
     agents.short_interest = ShortInterestAgent(client=client)
