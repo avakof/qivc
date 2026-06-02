@@ -200,3 +200,47 @@ filed_date range: 2023-01-03 .. 2026-03-31
 per-year (filed):  2023: 38,854 | 2024: 32,528 | 2025: 30,332 | 2026: 7,547
 quarters loaded:   13 (all complete)
 ```
+
+---
+
+## 2019–2021 extension for v3.0 multi-year cross-validation (Phase 3)
+
+The original Task 8.1 bootstrap covered **2023q1–2026q1**; Task 10 added
+**2022q1–2022q4** for the 2025 backtest's CMP lookback. This extension adds
+**2019q1–2021q4** (12 quarters) for the **2022 and 2023 backtest CMP lookbacks**
+(a 2022 rebalance is classified against 2019/2020/2021 history).
+
+**Source:** the same SEC Insider Transactions Data Sets archives
+(`{YYYY}q{N}_form345.zip`). No new code — `bootstrap_bulk_data.py
+--start-quarter 2019q1 --end-quarter 2021q4`.
+
+**Schema verification (pre-download safety check).** Compared 2019q1 and 2021q1
+TSV headers against the 2022+ (2024q1) layout:
+- `REPORTINGOWNER.tsv`, `NONDERIV_TRANS.tsv`: **byte-identical** headers.
+- `SUBMISSION.tsv`: identical **except** the 2023+ archives append a trailing
+  **`AFF10B5ONE`** column (the Rule 10b5-1 affirmation flag, introduced with the
+  2023 amendments). Pre-2023 quarters lack it. **The loader reads SUBMISSION by
+  column name** (`ACCESSION_NUMBER`, `FILING_DATE`, `ISSUERTRADINGSYMBOL` — all
+  present, same positions), so the missing trailing column is a no-op. No parser
+  adaptation was made (regression-guarded by
+  `test_import_pre2023_submission_without_aff10b5one`). Date format `%d-%b-%Y` is
+  unchanged.
+
+**Validation after load:**
+```
+total records:    307,717   (was 164,243)
+filed_date range: 2019-01-02 .. 2026-03-31
+per-year (filed): 2019: 54,150 | 2020: 47,400 | 2021: 41,924 | 2022: 54,982 |
+                  2023: 38,854 | 2024: 32,528 | 2025: 30,332 | 2026: 7,547
+distinct tickers/yr: 2019: 2,728 | 2020: 3,047 | 2021: 2,751
+2019-2021 quarters: 12 (all complete); existing 2022-2026 records unmodified.
+```
+The total (307,717) exceeds the rough ~210–220k estimate because **2019–2020
+insider-buying volume was elevated** (notably the 2020 COVID-crash buying spike),
+amplified by the multi-owner fan-out (§5). Per-year P-record counts (42–55k) are
+sensible for those years.
+
+**Note:** the raw-price anomalies (§6) persist in 2019–2021 (e.g. implausible
+`TRANS_PRICEPERSHARE` on a handful of filings). v3.0 is robust to them — its
+insider weighting caps size influence (`min(value/$250k, 4)`), so an anomalous
+$100B "value" contributes no more than a $1M buy.

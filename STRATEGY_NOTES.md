@@ -602,3 +602,17 @@ top-N selection engine, 4-year cross-validation harness with DSR). This is a
 **framework change** requiring an explicit brief update and a go-ahead decision —
 gated on the Step 1 outcome above (0 trades → v3.0 is warranted, not urgent vs.
 other work, per the user's call).
+
+### v3.0 implementation notes (Phase 2 dry-run findings)
+
+**Observed concentration characteristic:** universe ∩ opportunistic ∩
+quality-evaluable typically yields **1–3 names per month**. The strategy is
+**naturally concentrated, not diversified** — position sizing accordingly.
+Consequences observed in the Phase 2 dry-run (2025 Jan–Mar, real data):
+- The portfolio averaged **1–1.7 names held even at N=10** — the binding
+  constraint is **universe size, not N**. The N=5 vs N=10 grid dimension may
+  therefore barely differentiate (both hold the same handful of names).
+- **Single-name risk per position is high** (few names, large weights).
+- The **30% sector cap rarely binds** at this universe scale.
+This is a property of the insider-cluster signal in small-caps, not a defect; it
+means v3.0 is a concentrated, idiosyncratic-risk book by construction.

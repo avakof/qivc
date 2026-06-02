@@ -449,3 +449,29 @@ def test_read_purchases_returns_full_fanout(tmp_path: Path) -> None:
     assert len(rows) == 2  # both co-owners present
     assert {r.cik for r in rows} == {"111", "222"}
     assert all(r.accession_number == "A1" for r in rows)
+
+
+def test_import_pre2023_submission_without_aff10b5one(tmp_path: Path) -> None:
+    """2019-2021 SUBMISSION lacks the trailing AFF10B5ONE column (added 2023+).
+    The loader reads SUBMISSION by name, so the older layout imports unchanged."""
+    sub = tmp_path / "SUBMISSION.tsv"
+    # pre-2023 header: NO trailing AFF10B5ONE column
+    sub.write_text("ACCESSION_NUMBER\tFILING_DATE\tISSUERTRADINGSYMBOL\nA1\t07-FEB-2019\tAAA\n")
+    own = tmp_path / "REPORTINGOWNER.tsv"
+    own.write_text(
+        "ACCESSION_NUMBER\tRPTOWNERCIK\tRPTOWNERNAME\tRPTOWNER_RELATIONSHIP\tRPTOWNER_TITLE\n"
+        "A1\t111\tALICE\tOfficer\tCEO\n"
+    )
+    nd = tmp_path / "NONDERIV_TRANS.tsv"
+    nd.write_text(
+        "ACCESSION_NUMBER\tTRANS_CODE\tTRANS_DATE\tTRANS_SHARES\tTRANS_PRICEPERSHARE\n"
+        "A1\tP\t05-FEB-2019\t1000.0\t50.0\n"
+    )
+    db = str(tmp_path / "q.db")
+    with get_connection(db) as conn:
+        stats = bl.import_quarter(conn, sub, own, nd, "2019q1")
+        row = conn.execute(
+            "SELECT ticker, filed_date, transaction_date FROM form4_historical"
+        ).fetchone()
+    assert stats.records_inserted == 1
+    assert row == ("AAA", dt.date(2019, 2, 7), dt.date(2019, 2, 5))  # dates parse fine
