@@ -234,6 +234,73 @@ def _append_sanity_to_report(db_path: str, run_id: str, report_path: Path) -> No
 
 
 # ---------------------------------------------------------------------------
+# bootstrap (Task 8.1) — populate the historical Form 4 store from SEC bulk data
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def bootstrap(
+    refresh: bool = typer.Option(
+        False, "--refresh", help="Load only the next published quarter; idempotent (cron-safe)."
+    ),
+    start_quarter: str | None = typer.Option(
+        None, "--start-quarter", help="First quarter to load (default 2023q1)."
+    ),
+    end_quarter: str | None = typer.Option(
+        None, "--end-quarter", help="Last quarter to load (default: latest published)."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Re-import quarters even if already marked complete."
+    ),
+    cache_dir: str = typer.Option(
+        "data/bulk_cache", "--cache-dir", help="Directory for downloaded archives."
+    ),
+) -> None:
+    """Populate the historical Form 4 store from the SEC Insider Transactions Data Sets."""
+    from datetime import UTC
+    from datetime import datetime as _datetime
+    from pathlib import Path as _Path
+
+    from qivc.config import Settings
+    from qivc.data import bulk_loader
+    from qivc.logging_config import configure_logging
+
+    settings = Settings()
+    configure_logging(
+        level=getattr(settings, "log_level", "INFO"),
+        fmt=getattr(settings, "log_format", "json"),
+    )
+    now = _datetime.now(UTC)
+    cache = _Path(cache_dir)
+
+    if refresh:
+        result = bulk_loader.refresh(settings.db_path, settings.edgar_user_agent, cache, now)
+    else:
+        result = bulk_loader.bootstrap(
+            settings.db_path,
+            settings.edgar_user_agent,
+            cache,
+            now,
+            start_quarter=start_quarter or bulk_loader.DEFAULT_START_QUARTER,
+            end_quarter=end_quarter,
+            force=force,
+        )
+
+    if result.message:
+        typer.echo(result.message)
+    for s in result.per_quarter:
+        if s.skipped:
+            typer.echo(f"{s.quarter}: skipped (already complete)")
+        else:
+            typer.echo(f"{s.quarter}: {s.records_inserted:,} records inserted")
+    v = bulk_loader.validate(settings.db_path)
+    typer.echo(
+        f"form4_historical: {v['total_records']:,} records, "
+        f"{v['min_filed_date']} .. {v['max_filed_date']}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # backtest
 # ---------------------------------------------------------------------------
 

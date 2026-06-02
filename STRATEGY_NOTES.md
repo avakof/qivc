@@ -197,3 +197,37 @@ gate result regardless of earlier failures.
 `--evaluate-all-gates` is **future work — not yet implemented**; it is the next
 step for strategy analytics (it would also let Stage 1 record all gate outcomes
 per ticker, removing the "this gate wasn't evaluated" caveat above).
+
+---
+
+## Bulk ↔ live Form 4 cutover (Task 8.1)
+
+The historical insider store (`form4_historical`, populated by
+`scripts/bootstrap_bulk_data.py` from the SEC Insider Transactions Data Sets)
+covers **2023q1 through the most recently published quarter**, tracked in the
+`bulk_load_progress` ledger. The SEC publishes each quarter ~7 days after
+quarter-end (observed; we pad to 21 days before expecting one).
+
+**Cutover rule (to be wired into `form4_agent.py` in Task 8.2):** the daily
+screen's trailing 14-day window is sourced from `form4_historical` where
+available, **falling back to live EDGAR for filings filed after the most recent
+bulk quarter's end date**. Records present in both sources are de-duplicated by
+`(cik, accession_number)`, with **bulk winning** as the authoritative dataset.
+
+Two known limitations of the bulk source are documented in full in
+[BULK_DATA_NOTES.md](BULK_DATA_NOTES.md) and bear on Task 8.2:
+
+1. **Multi-owner fan-out.** The SEC schema has no per-transaction owner key, so
+   joint filings cross-join to one record per (transaction × owner). Among
+   *P-code* filings this affects ~18% of accessions (not the ~2.2% market-wide
+   filing rate) and inflates record counts ~1.5×. CMP clustering counts distinct
+   *buyers*, so reading from `form4_historical` should de-duplicate by
+   `accession_number` (or collapse affiliated co-filers) to avoid spurious
+   Track-A clusters.
+2. **Raw price anomalies.** A few rows carry implausible `TRANS_PRICEPERSHARE`
+   values (e.g. ~$29M/share) straight from the SEC source. The strict loader
+   filter removes only non-positive prices; a value/price sanity bound is a
+   candidate for Task 8.2/8.3.
+
+The cutover wiring, cap removal (`_GLOBAL_SCAN_LIMIT`), and the full-universe
+comparison are **Tasks 8.2–8.4 — not yet implemented.**

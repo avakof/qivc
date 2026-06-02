@@ -46,6 +46,45 @@ _MIGRATIONS: list[str] = [
         is_officer      BOOLEAN  NOT NULL
     )
     """,
+    # ------------------------------------------------------------------
+    # Bulk Form 4 historical store (Task 8.1).
+    #
+    # Populated from the SEC Insider Transactions Data Sets (quarterly
+    # flattened Forms 3/4/5). Holds open-market PURCHASES (code P) only.
+    # One row per (transaction x reporting owner): the SEC schema links
+    # NONDERIV_TRANS to REPORTINGOWNER solely via ACCESSION_NUMBER, with
+    # no per-transaction owner key, so multi-owner joint filings fan out.
+    # See scripts/bootstrap_bulk_data.py and BULK_DATA_NOTES.md.
+    # ------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS form4_historical (
+        cik                  VARCHAR  NOT NULL,
+        name                 VARCHAR  NOT NULL,
+        title                VARCHAR  NOT NULL,
+        ticker               VARCHAR  NOT NULL,
+        shares               DOUBLE   NOT NULL,
+        price                DOUBLE   NOT NULL,
+        value_usd            DOUBLE   NOT NULL,
+        transaction_date     DATE     NOT NULL,
+        filed_date           DATE     NOT NULL,
+        transaction_code     VARCHAR  NOT NULL,   -- always 'P' in this table
+        is_director          BOOLEAN  NOT NULL,
+        is_officer           BOOLEAN  NOT NULL,
+        is_ten_percent_owner BOOLEAN  NOT NULL,
+        accession_number     VARCHAR  NOT NULL,   -- (cik, accession) = dedup key vs live EDGAR
+        source_quarter       VARCHAR  NOT NULL    -- e.g. '2024q1'; enables idempotent re-import
+    )
+    """,
+    # Per-quarter import ledger: makes the bootstrap idempotent and resumable,
+    # and records the bulk/live cutover boundary for the daily screen.
+    """
+    CREATE TABLE IF NOT EXISTS bulk_load_progress (
+        quarter        VARCHAR    PRIMARY KEY,   -- e.g. '2025q4'
+        downloaded_at  TIMESTAMP,
+        record_count   INTEGER,                  -- P-code rows imported for this quarter
+        status         VARCHAR                   -- 'complete' | 'partial' | 'failed'
+    )
+    """,
 ]
 
 
