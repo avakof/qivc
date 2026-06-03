@@ -717,3 +717,55 @@ See `qivc paper --help`.
 - [x] `qivc paper` forward-validation command shipped.
 - [ ] **DEFERRED to Phase 4B:** PIT membership source decision (CRSP/WRDS vs
   Norgate), then 2022–2024 cross-validation + Phase 5 DSR-per-config report.
+
+## Task 12 — Technical-Oversold Factor + 5 Pre-Registered Weight Hypotheses
+
+> ⚠️ **EXPLORATORY, IN-SAMPLE, SURVIVOR-BIASED 2025. DO NOT DEPLOY.** The 5
+> hypotheses below are pre-registered weightings tested ONCE across the 18 Phase-4A
+> configs. None is a validated feature; the output is "which earned a PIT test."
+> Full report: `BACKTEST_V3X_TECHNICAL_TEST.md`.
+
+**Phase 1** added a 5th composite factor, **technical-oversold** (Baldwin Filter-4
+inspired), with PRE-REGISTERED, untuned parameters: Wilder RSI(14) inverted +
+distance below the 60-day high, 0.5/0.5 blend, then percentile-ranked like the
+other factors. `src/qivc/backtest/technical.py`; weighted 0.0 in baseline so v3.0
+is unchanged. (Do NOT tune RSI period / lookback / blend — tuning them on 2025
+would be the data-snooping we're avoiding.)
+
+**Phase 2** tested EXACTLY these 5 weightings (insider/quality/valuation/momentum/
+technical), headline metric = Score-Return R² (baseline 0.004):
+
+| Hyp | Weights | Pooled R² | cfgs R²>0.01 | Med Return | Note |
+|---|---|---|---|---|---|
+| H10 | 40/30/20/10/0 | 0.0040 | 9/18 | 37.5% | baseline control |
+| H2  | 70/10/10/10/0 | 0.0351 | 12/18 | 31.8% | down-weight quality, no tech |
+| H13 | 40/0/20/10/30 | 0.0415 | 18/18 | 49.6% | technical replaces quality |
+| H14 | 50/0/10/10/30 | 0.0452 | 18/18 | 43.9% | full-Baldwin (highest R²) |
+| H15 | 35/15/20/10/20 | 0.0164 | 15/18 | 26.5% | technical supplements quality |
+
+**Exploratory findings (NOT validated features — hypotheses for PIT testing):**
+
+- **T1 — The R² lift is real and structural in-sample.** Every quality-down-weighted
+  hypothesis beats baseline R²=0.004; the technical-heavy H13/H14 reach ~0.04–0.045
+  (~10×) and clear R²>0.01 in **18/18 configs** — not one lucky config. This is the
+  first ranking in the project to correlate with forward returns beyond noise.
+- **T2 — Most of the gain is from DROPPING quality, not adding technical.** H2
+  (quality→10%, no technical) alone lifts R² to 0.035. Piotroski+GP/A quality was
+  *diluting* the ranking in this small-cap insider universe (echoes Phase-4A H2:
+  quality was higher in losers). Technical adds an increment on top.
+- **T3 — Replace beats supplement.** H13 (drop quality) > H15 (keep 15% quality) on
+  both R² and return.
+- **T4 — H13/H14 raised BOTH return and R²; treat that as ONE effect, not two.** In
+  a 2025 small-cap mean-reversion tape an oversold factor both predicts returns and
+  rides the bounce — the extra return is the same regime mechanism as the R², not
+  independent confirmation. **The dominant risk is that the whole lift is a 2025
+  mean-reversion artifact.**
+- **T5 — Deflated Sharpe is uninformative here** (all ~0.85–0.99 across 5 hyps);
+  T=12 + 90 cells → do not let DSR tip the decision either way.
+
+**Pre-registered next test (if PIT data is acquired):** does the drop-quality +
+technical-oversold ranking (H13/H14) still beat baseline R² on survivor-bias-free,
+multi-year data — or was it a 2025 mean-reversion artifact? **One clean test, not
+more in-sample tuning.** Do NOT fine-tune the winner, do NOT sweep technical
+proportions, and do NOT switch `qivc paper` off the v3.0 baseline — paper-trading
+continues on the actually-built model to gather honest forward data.
