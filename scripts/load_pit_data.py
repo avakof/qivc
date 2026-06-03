@@ -20,7 +20,7 @@ import sys
 import httpx
 
 from qivc.config import Settings
-from qivc.data import bulk_loader, delisting_loader, nport_loader
+from qivc.data import bulk_loader, delisting_loader, membership_recovery, nport_loader
 
 YEARS = [2021, 2022, 2023, 2024, 2025]
 QUARTERS = bulk_loader.quarters_in_range("2021q1", "2025q4")
@@ -54,6 +54,25 @@ def main() -> None:
         c2t = _cik_to_ticker(ua)
         rep2 = delisting_loader.load_delistings(s.db_path, QUARTERS, ua, cik_to_ticker=c2t)
         print(f"  total Form 25/15 rows: {sum(rep2.values())} across {len(rep2)} quarters")
+
+    if what == "recover2022":
+        print("=== 2022 delisted-name recovery (ONE pass: name-match + Form 25 CIK) ===")
+        import httpx
+
+        with httpx.Client(timeout=60.0) as c:
+            ct = c.get(
+                "https://www.sec.gov/files/company_tickers.json", headers={"User-Agent": ua}
+            ).json()
+        rep = membership_recovery.recover_membership(s.db_path, ct)
+        cov = rep["after"] / rep["total"] * 100
+        print(f"  2022 coverage: {rep['before']}/{rep['total']} "
+              f"({rep['before'] / rep['total'] * 100:.1f}%) -> "
+              f"{rep['after']}/{rep['total']} ({cov:.1f}%)")
+        print(f"  recovered: name-match {rep['recovered_sec_name']}, "
+              f"Form25-CIK {rep['recovered_form25_cik']}")
+        print(f"  residual unmapped: {rep['residual']} | "
+              f"residual WITH 2022 insider buying: {rep['residual_with_insider_buying']} | "
+              f"residual w/o CIK: {rep['residual_no_cik']}")
 
 
 if __name__ == "__main__":
