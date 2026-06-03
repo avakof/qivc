@@ -802,3 +802,53 @@ bankruptcy/liquidation/Ch.7/11 → −90%; acquisition/merger → last available
 listing-standard violation / moved-to-OTC → last major-exchange close (floor,
 no further price); unknown/ambiguous → −50% (conservative-uncertain). The direction
 is the point: stop pretending delisted holds vanished, and penalize them.
+
+### Phase C RESULT — the regime test FAILED (2026-06; `BACKTEST_PIT_2YEAR_TEST.md`)
+
+Ran H10/H13/H14 on the **survivor-bias-free** 2022 + 2025 universes (PIT IWM N-PORT
+membership via `SecPitProvider` + conservative delisting marks), full 18-config
+grid (matching Task 12). Headline = pooled Score-Return R² per year.
+
+| Hyp | Weights | **2022 R²** (decisive) | **2025 R²** | 2022 ret(med) | 2025 ret(med) |
+|---|---|---|---|---|---|
+| H10 | 40/30/20/10/0 | **0.0207** | 0.0001 | −20% | +14% |
+| H13 | 40/0/20/10/30 | 0.0018 | 0.0236 | −77% | +9% |
+| H14 | 50/0/10/10/30 | 0.0091 | 0.0197 | −76% | +5% |
+
+**VERDICT: FAIL — regime artifact confirmed.** Neither H13 nor H14 beats the H10
+baseline R² in **2022**; in fact baseline (the one that *keeps* quality) has the
+highest 2022 R², and the technical-heavy hypotheses are *worse*. They only beat
+baseline in **2025** (mean-reversion) — reproducing the Task-12 in-sample result —
+but **reverse in 2022** (trend/down). Per the pre-registered criterion, 2022 fails
+→ **STOP, do not run Phase D, DO NOT DEPLOY.** The Task-12 R² lift was a **2025
+mean-reversion artifact, not durable cross-regime edge.**
+
+Corroborating detail:
+- **Mechanism is intuitive:** buying oversold names and *re-buying as they keep
+  falling* in a 2022 bear is a falling-knife strategy — H13/H14 median return
+  **−77% / −76%** vs baseline −20%. Oversold-tilt helps only when the tape mean-
+  reverts (2025).
+- **The delisting marks did their job:** H13/H14 held **ENR and FIBK**, which
+  delisted in 2022 — the previously-invisible losers finally booked (B3 marks);
+  H10 held none that delisted. So the survivor-bias correction materially changed
+  the held set and surfaced losses the biased 2025-snapshot backtest never saw.
+- **Deflated Sharpe** (N=3, T=12) is uninformative and did not tip the read — R²
+  consistency across regimes did.
+
+**Sensitivity bound (carried from the recovery pass):** 2022 raw membership coverage
+93.9% (1,874/1,996); residual 122 unmapped names had **0** 2022 insider buying →
+all outside the insider-active scored subset → the verdict is unaffected by the
+residual. 2022 PIT universe restores 567 wrongly-excluded names and drops 659
+wrongly-included (~⅔ of the universe differs from the current snapshot).
+
+**Methodology caveat:** FRED was unreachable during the run, so 2022 used a neutral
+risk-on regime (2025 used the real cached regimes). The regime overlay only scales
+position sizing, so the headline R² (the verdict metric) is unaffected; only the
+secondary return/Sharpe columns omit risk-off de-risking, uniformly across hyps.
+
+**Conclusion / next step:** the disciplined falsification framework worked as
+designed — survivor-bias removal + the decisive 2022 trend/down regime caught the
+technical-oversold signal as a regime artifact. No durable edge demonstrated.
+Phase D (2023/2024 confirmation) is **not** run. The honest path remains forward
+paper-trading on the v3.0 baseline; the technical factor is shelved as
+regime-conditional, not an edge.
