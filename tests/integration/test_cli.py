@@ -485,6 +485,68 @@ def test_regime_prints_all_indicators(patched_env: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# paper — forward out-of-sample paper trading (no orders, research only)
+# ---------------------------------------------------------------------------
+
+
+def test_paper_writes_ledger_and_warns(patched_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`qivc paper` builds an intended book, appends a ledger line, and warns."""
+    from datetime import date
+
+    from qivc.backtest.portfolio_constructor import Position
+
+    regime = MarketRegime(
+        vix_60d_sma=18.0,
+        credit_spread_bps=150.0,
+        yield_curve_bps=30.0,
+        value_growth_12m=0.02,
+        regime="risk-on",
+    )
+    fake_positions = [
+        Position("AAA", "Energy", 0.5, date(2026, 6, 2), 0.71),
+        Position("BBB", "Health Care", 0.5, date(2026, 6, 2), 0.69),
+    ]
+    seen_prev: list[list] = []
+
+    def fake_assemble(settings, as_of, config, prev_positions, cache_dir="x"):  # type: ignore[no-untyped-def]
+        seen_prev.append(prev_positions)
+        return fake_positions, 7, regime
+
+    monkeypatch.setattr(cli_main, "assemble_paper_portfolio", fake_assemble)
+    ledger = patched_env / "paper" / "ledger.jsonl"
+
+    result = runner.invoke(
+        cli_main.app,
+        ["paper", "--as-of", "2026-06-02", "--config", "N10_thr90_hold30",
+         "--ledger", str(ledger)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "DO NOT DEPLOY" in result.output
+    assert "NO ORDERS" in result.output
+    assert "AAA" in result.output and "BBB" in result.output
+
+    assert ledger.exists()
+    rec = json.loads(ledger.read_text().splitlines()[0])
+    assert rec["config"] == "N10_thr90_hold30"
+    assert rec["as_of"] == "2026-06-02"
+    assert rec["equity_pct"] == 100.0
+    assert {p["ticker"] for p in rec["positions"]} == {"AAA", "BBB"}
+    assert "RESEARCH ONLY" in rec["disclaimer"]
+    # first run threads no prior positions
+    assert seen_prev[0] == []
+
+    # second run reads the prior record and threads its positions back in
+    result2 = runner.invoke(
+        cli_main.app,
+        ["paper", "--as-of", "2026-07-01", "--config", "N10_thr90_hold30",
+         "--ledger", str(ledger)],
+    )
+    assert result2.exit_code == 0, result2.output
+    assert {p.ticker for p in seen_prev[1]} == {"AAA", "BBB"}
+    assert len(ledger.read_text().splitlines()) == 2
+
+
+# ---------------------------------------------------------------------------
 # version
 # ---------------------------------------------------------------------------
 

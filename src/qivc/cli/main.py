@@ -13,6 +13,12 @@ from typing import Any
 import typer
 
 from qivc import __version__
+from qivc.paper import (
+    append_record,
+    assemble_paper_portfolio,
+    build_record,
+    read_last_record,
+)
 
 app = typer.Typer(
     name="qivc",
@@ -603,3 +609,88 @@ async def _run_regime() -> None:
     typer.echo(f"  Credit spread (bps): {r.credit_spread_bps:.1f}")
     typer.echo(f"  Yield curve (bps):   {r.yield_curve_bps:.1f}")
     typer.echo(f"  Value-growth 12m:    {r.value_growth_12m:+.2%}")
+
+
+# ---------------------------------------------------------------------------
+# paper — forward out-of-sample paper trading (Phase 4A close)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def paper(
+    as_of: str | None = typer.Option(
+        None, "--as-of", help="As-of date YYYY-MM-DD (default: today)."
+    ),
+    config: str = typer.Option(
+        "N10_thr90_hold30", "--config", help="Grid config label, e.g. N10_thr90_hold30."
+    ),
+    ledger: str = typer.Option(
+        "data/paper/ledger.jsonl", "--ledger", help="Paper-ledger JSONL path."
+    ),
+) -> None:
+    """
+    Record the v3.0 composite's intended FORWARD book — paper only, NO orders.
+
+    Builds today's insider-active universe -> composite score -> top-N book and
+    appends an intended-book snapshot to the ledger. This is a research
+    data-collection tool for out-of-sample validation; it asserts NO edge and
+    places NO trades. See STRATEGY_NOTES.md (Phase 4A — CLOSED / DO NOT DEPLOY).
+    """
+    from datetime import date as _date
+
+    from qivc.backtest.portfolio_constructor import Position
+    from qivc.config import Settings
+
+    settings = Settings()
+    d = _date.fromisoformat(as_of) if as_of else _date.today()
+
+    prev_rec = read_last_record(ledger, config)
+    prev_positions = (
+        [
+            Position(
+                ticker=p.ticker,
+                sector=p.sector,
+                weight=p.weight,
+                entry_date=_date.fromisoformat(p.entry_date),
+                composite=p.composite,
+            )
+            for p in prev_rec.positions
+        ]
+        if prev_rec
+        else []
+    )
+
+    positions, n_scored, regime = assemble_paper_portfolio(settings, d, config, prev_positions)
+    record = build_record(d, config, regime, positions, n_scored)
+    append_record(ledger, record)
+
+    bar = "=" * 66
+    typer.secho(bar, fg=typer.colors.YELLOW)
+    typer.secho(
+        "  QIVC PAPER — RESEARCH ONLY. NO ORDERS. NO DEMONSTRATED EDGE.",
+        fg=typer.colors.YELLOW,
+        bold=True,
+    )
+    typer.secho(
+        "  v3.0 is survivor-biased in-sample (R^2=0.004; see STRATEGY_NOTES.md).",
+        fg=typer.colors.YELLOW,
+    )
+    typer.secho("  DO NOT DEPLOY — forward out-of-sample record only.", fg=typer.colors.YELLOW)
+    typer.secho(bar, fg=typer.colors.YELLOW)
+    typer.echo(f"As-of: {record.as_of}   Config: {config}   Regime: {record.regime}")
+    typer.echo(
+        f"Scored (insider-active): {n_scored}   Held: {len(positions)}   "
+        f"Equity: {record.equity_pct:.1f}%  (rest cash/T-bills)"
+    )
+    if record.positions:
+        typer.echo(
+            f"{'Ticker':<8}{'Sector':<24}{'Weight%':>9}{'Composite':>11}{'Entry':>13}"
+        )
+        for p in record.positions:
+            typer.echo(
+                f"{p.ticker:<8}{p.sector[:23]:<24}{p.weight * 100:>8.1f}%"
+                f"{p.composite:>11.3f}{p.entry_date:>13}"
+            )
+    else:
+        typer.echo("No holdings this period (100% T-bills / cash).")
+    typer.echo(f"Appended to {ledger}")

@@ -616,3 +616,104 @@ Consequences observed in the Phase 2 dry-run (2025 Jan–Mar, real data):
 - The **30% sector cap rarely binds** at this universe scale.
 This is a property of the insider-cluster signal in small-caps, not a defect; it
 means v3.0 is a concentrated, idiosyncratic-risk book by construction.
+
+## Phase 4A Winner/Loser Descriptive Patterns
+
+> ⚠️ **HYPOTHESES, NOT FEATURES.** The items below are *descriptive observations*
+> from a single config (`v3_2025_N10_thr90_hold30`, **22 closed trades**) in one
+> survivor-biased year. **No statistical tests were run** (n is far below any
+> significance floor), and none should be. Nothing here is validated, nothing is
+> implemented, and nothing changes the scorer. Each is listed as a **candidate to
+> test if/when proper point-in-time cross-validation exists** (Phase 4B+). Full
+> table + caveats: `BACKTEST_ANALYSIS_4A_WINNERS.md`. Recall Task 11:
+> composite-vs-return R² = 0.004 — the score did not predict returns.
+
+The descriptive table groups 12 winners vs 10 losers (6 trades still open at
+year-end are excluded). What the eye picks out — **to test later, not to act on:**
+
+- **H1 — The composite did not separate outcomes.** Median composite 0.690 (win)
+  vs 0.688 (loss). The trade-level echo of R²=0.004. *Test:* does the composite
+  rank by realized return in *any* PIT regime year?
+- **H2 — Opposite factor mixes, same composite (the most interesting one).**
+  Winners reached ~0.69 via **high insider (median 0.954) / low quality (0.528)**;
+  losers via **lower insider (0.77) / high quality (0.766)**. The 40/30 blend
+  averaged a possible insider-conviction tilt away. *Test:* (a) does an
+  insider-conviction-weighted score outperform the blend? (b) Is Piotroski/GP-A
+  quality miscalibrated — or even *contrarian* — in a small-cap insider universe?
+  *Caveat:* STAA, CDXS, MDGL are high-insider **losers** → weak, noisy.
+- **H3 — Beaten-down-2024 winners.** Several winners fell hard in 2024, drew
+  insider buying, then rose in 2025 (CVI −37%, JELD −56%, RIG −40%, KALV −30%).
+  *Test:* prior-year drawdown + insider buying → mean-reversion bounce? *Caveat:*
+  SLSN was +307% in 2024 → −36% loss.
+- **H4 — Winners skewed larger-cap** (median ~$940M vs ~$524M). *Test:* a size
+  tilt? *Caveat:* MDGL (~$10B) was a loser — fragile.
+- **H5 — No visible hold-period or sector separation.** Median hold 60.5d both;
+  Energy and Health Care appear in both groups. Probably nothing to test.
+- **H6 — Repeat-entry-after-loss (BATRA, TDW).** The strategy has **no outcome
+  memory**: it re-buys a name whenever it re-qualifies on fresh insider activity.
+  Two names repeated (3 re-entries). After-loss re-entries landed near zero
+  (BATRA-May +0.9%, TDW-Jul −0.4%). *Test:* a skip-or-size-down-after-loss rule?
+  *Caveat:* **n=2 re-entries proves nothing.**
+
+**How to test these honestly (Phase 4B+ prerequisites):** PIT Russell-2000
+membership (kills survivor bias), multi-year cross-section (2019–2025), and a
+pre-registered hypothesis list so these are not re-discovered as post-hoc noise.
+Until then they are curiosities, not signals.
+
+## Phase 4A — CLOSED (2026-06-02)
+
+Phase 4A (the 2025, 18-config v3.0 grid + analysis) is **closed**. Deliverables:
+`BACKTEST_REVIEW_V3_GRID.md` (Part A grid + survivor-bias finding),
+`BACKTEST_ANALYSIS_4A.md` (Task 11 deep-dive, R²=0.004),
+`BACKTEST_ANALYSIS_4A_WINNERS.md` (this winner/loser description),
+`BACKTEST_DATA_PIT_INVESTIGATION.md` (PIT membership data-source options).
+
+### 🚫 DO NOT DEPLOY — research only
+
+**Nothing in Phase 4A is tradeable. There is no demonstrated edge.** Do not put
+real capital, or a live/automated order path, behind any v3.0 config — including
+the headline `N10_thr90_hold30` (+74.9%). Reasons, all documented above and in
+`BACKTEST_LIMITATIONS.md`:
+
+1. **Survivor/membership bias (dominant):** the 2026-06 IWM snapshot was applied
+   to 2025. Delisted names are absent; results are conditioned on survival.
+2. **The score does not predict returns:** composite-vs-return R² = 0.004
+   (Task 11); winners and losers have identical median composites (H1).
+3. **The +74.9% is concentration luck, not signal:** the best config made ~65% of
+   its return from 3 trades on a 1–8 name book; removing 2025's >+100% monster
+   winners did **not** cut the median return (Task 11, Analysis 4).
+4. **n is statistically void:** one year, one regime, 8–44 trades/config — below
+   any significance floor. Deflated Sharpe < 1.
+5. **Some gates ran UNVERIFIABLE** (valuation/momentum neutral; no PIT sector
+   medians or EPS-revision snapshots) — see OQ-5 and `BACKTEST_LIMITATIONS.md`.
+
+This system is a **research screen**. Any forward use must be **paper only** until
+a PIT, survivor-bias-free, multi-year cross-validation shows out-of-sample edge.
+
+### Forward path: `qivc paper`
+
+The honest next step is **forward, out-of-sample paper trading** — record what the
+v3.0 composite would do *going forward* (genuinely unseen data, no survivor bias),
+and accumulate a real out-of-sample track record. The CLI command:
+
+```
+qivc paper --as-of 2026-06-02 --config N10_thr90_hold30
+```
+
+builds today's v3.0 composite portfolio (insider-active universe → score →
+construct) and **appends an intended-book snapshot to a paper ledger**
+(`data/paper/ledger.jsonl`). It places **no orders** and prints a research-only
+banner. It is a data-collection tool for forward validation, not a trading bridge.
+See `qivc paper --help`.
+
+### Closure checklist
+
+- [x] 2025 18-config grid run + reproducible (seed=42, byte-identical).
+- [x] Red-flag/look-ahead investigation done (bfill bug found + fixed, `8f7081d`).
+- [x] Survivor-bias quantified and documented as the dominant confound.
+- [x] Task 11 deep-dive (score has no predictive power; concentration luck).
+- [x] Winner/loser descriptive analysis → hypotheses logged (this section).
+- [x] DO NOT DEPLOY warnings recorded here + `BACKTEST_LIMITATIONS.md`.
+- [x] `qivc paper` forward-validation command shipped.
+- [ ] **DEFERRED to Phase 4B:** PIT membership source decision (CRSP/WRDS vs
+  Norgate), then 2022–2024 cross-validation + Phase 5 DSR-per-config report.

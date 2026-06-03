@@ -1,0 +1,102 @@
+{
+ "BATRA": {
+  "ret_2024": -0.03500472055266557,
+  "shares_outstanding": 10318187
+ },
+ "BRCC": {
+  "ret_2024": -0.24703086756046266,
+  "shares_outstanding": 117004009
+ },
+ "CDXS": {
+  "ret_2024": 0.5288462038106014,
+  "shares_outstanding": 90896567
+ },
+ "CELC": {
+  "ret_2024": -0.11434368138811624,
+  "shares_outstanding": 48766288
+ },
+ "CVI": {
+  "ret_2024": -0.3666061693080729,
+  "shares_outstanding": 100530599
+ },
+ "GSAT": {
+  "ret_2024": 0.10695187456676658,
+  "shares_outstanding": 128788931
+ },
+ "IMMR": {
+  "ret_2024": 0.259381596403242,
+  "shares_outstanding": 33100452
+ },
+ "JELD": {
+  "ret_2024": -0.5587284581870835,
+  "shares_outstanding": 86151321
+ },
+ "KALV": {
+  "ret_2024": -0.30288061457129634,
+  "shares_outstanding": 53240888
+ },
+ "KNTK": {
+  "ret_2024": 0.815325877615857,
+  "shares_outstanding": 73602334
+ },
+ "MDGL": {
+  "ret_2024": 0.36017811202517813,
+  "shares_outstanding": 23055659
+ },
+ "MPLT": {
+  "ret_2024": null,
+  "shares_outstanding": 42618165
+ },
+ "OEC": {
+  "ret_2024": -0.40868614560155214,
+  "shares_outstanding": 56388649
+ },
+ "ONEW": {
+  "ret_2024": -0.47397098428654194,
+  "shares_outstanding": 16617541
+ },
+ "REPX": {
+  "ret_2024": 0.2582608020988839,
+  "shares_outstanding": 21695947
+ },
+ "RIG": {
+  "ret_2024": -0.4,
+  "shares_outstanding": 1106760308
+ },
+ "SLSN": {
+  "ret_2024": 3.0666666004392864,
+  "shares_outstanding": 70632445
+ },
+ "SONO": {
+  "ret_2024": -0.09832136170967953,
+  "shares_outstanding": 119128671
+ },
+ "STAA": {
+  "ret_2024": -0.18298011135118175,
+  "shares_outstanding": 49788495
+ },
+ "STGW": {
+  "ret_2024": -0.010526341452256616,
+  "shares_outstanding": 247854000
+ },
+ "TDW": {
+  "ret_2024": -0.22076627548949668,
+  "shares_outstanding": 49730652
+ },
+ "TRDA": {
+  "ret_2024": 0.13974956022223828,
+  "shares_outstanding": 38820616
+ },
+ "TYRA": {
+  "ret_2024": -0.009971534451790443,
+  "shares_outstanding": 59470381
+ },
+ "VRDN": {
+  "ret_2024": -0.14228189042056139,
+  "shares_outstanding": 110427682
+ },
+ "ZYME": {
+  "ret_2024": 0.41040464180296254,
+  "shares_outstanding": 73023061
+ }
+}
