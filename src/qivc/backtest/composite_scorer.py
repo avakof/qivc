@@ -4,7 +4,10 @@ QIVC v3.0 composite scorer (Phase 1).
 Replaces v2.x's boolean gate chain with a continuous, cross-sectional composite
 score per stock (computed monthly over the IWM-ex-Financials/REITs universe):
 
-    composite = 0.40 * insider + 0.30 * quality + 0.20 * valuation + 0.10 * momentum
+    composite = 0.40*insider + 0.30*quality + 0.20*valuation + 0.10*momentum + 0.00*technical
+
+(The 5th factor, technical-oversold, was added in Task 12; v3.0 baseline weights it
+0.0 so behaviour is unchanged until a hypothesis assigns it weight.)
 
 Each sub-score is a **cross-sectional percentile in [0, 1]** computed *within the
 scored universe that month*, so the composite ranks names rather than hard-passing
@@ -34,6 +37,7 @@ COMPOSITE_WEIGHTS: dict[str, float] = {
     "quality": 0.30,
     "valuation": 0.20,
     "momentum": 0.10,
+    "technical": 0.00,  # 5th factor (Task 12); baseline v3.0 weights it 0
 }
 
 
@@ -48,6 +52,7 @@ class StockFactors:
     gpa: float | None  # gross profit / total assets
     valuation_raw: float | None  # cheapness composite, higher = cheaper (None if unavailable)
     momentum_raw: float | None  # forward EPS-revision signal (None if unavailable)
+    technical_raw: float | None = None  # oversold blend in [0,1] (None if unavailable)
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,7 @@ def score_universe(
     quality = _quality_component(factors)
     valuation = _percentile_ranks([f.valuation_raw for f in factors])
     momentum = _percentile_ranks([f.momentum_raw for f in factors])
+    technical = _percentile_ranks([f.technical_raw for f in factors])
 
     scored: list[ScoredStock] = []
     for i, f in enumerate(factors):
@@ -121,6 +127,7 @@ def score_universe(
             "quality": quality[i],
             "valuation": valuation[i],
             "momentum": momentum[i],
+            "technical": technical[i],
         }
         composite = sum(weights[k] * comp[k] for k in weights)
         scored.append(

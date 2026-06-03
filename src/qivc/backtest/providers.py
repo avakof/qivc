@@ -93,6 +93,30 @@ def load_prices(cache: BacktestCache) -> tuple[pd.DataFrame, pd.DataFrame]:
     return close, vol
 
 
+def make_technical_provider(
+    close: pd.DataFrame,
+) -> Callable[[str, _dt.date], float | None]:
+    """
+    PIT technical-oversold raw-score provider (Task 12). For (ticker, as_of) it
+    feeds the ~65 most recent closes dated STRICTLY BEFORE as_of into the
+    pre-registered oversold score (RSI 14 + 60-day high, 0.5/0.5). Returns None on
+    insufficient history -> the scorer maps it to the neutral 0.5 percentile.
+    """
+    from qivc.backtest.technical import HIGH_LOOKBACK, technical_oversold_score
+
+    window = HIGH_LOOKBACK + 5  # enough for RSI(14) seeding + 60-day high
+
+    def provider(ticker: str, as_of: _dt.date) -> float | None:
+        if ticker not in close.columns:
+            return None
+        s = close[ticker].loc[close.index < pd.Timestamp(as_of)].dropna()
+        if s.empty:
+            return None
+        return technical_oversold_score([float(x) for x in s.tail(window)])
+
+    return provider
+
+
 # --------------------------------------------------------------------------
 # Liquidity provider (PIT, from cached prices + cached shares/industry)
 # --------------------------------------------------------------------------

@@ -44,6 +44,7 @@ INSIDER_LOOKBACK_DAYS = 90
 _OPPORTUNISTIC = "opportunistic"
 
 FundamentalsProvider = Callable[[str, _dt.date], Fundamentals | None]
+TechnicalProvider = Callable[[str, _dt.date], float | None]
 
 
 def _insider_weight(txn: InsiderTransaction, as_of: _dt.date) -> float:
@@ -86,9 +87,14 @@ def assemble_factors(
     universe: set[str],
     sector_map: dict[str, str],
     fundamentals_provider: FundamentalsProvider,
+    technical_provider: TechnicalProvider | None = None,
     cmp_history_years: int = 3,
 ) -> list[StockFactors]:
-    """Build StockFactors for the insider-active scored universe at *as_of*."""
+    """Build StockFactors for the insider-active scored universe at *as_of*.
+
+    *technical_provider* (Task 12) supplies the PIT technical-oversold raw score;
+    when None the factor is neutral (back-compat: v3.0 weights it 0 anyway).
+    """
     insider_raw = opportunistic_insider_raw(db_path, universe, as_of, cmp_history_years)
     factors: list[StockFactors] = []
     for ticker in sorted(insider_raw):
@@ -100,6 +106,7 @@ def assemble_factors(
             # pass the raw Piotroski inputs the scorer needs: F-Score (0-9) and GP/A.
             fscore = _piotroski(fund)
             gpa = (fund.gross_profit / fund.total_assets) if fund.total_assets else None
+        technical_raw = technical_provider(ticker, as_of) if technical_provider else None
         factors.append(
             StockFactors(
                 ticker=ticker,
@@ -109,6 +116,7 @@ def assemble_factors(
                 gpa=gpa,
                 valuation_raw=None,  # neutral — no PIT sector medians (OQ-5)
                 momentum_raw=None,  # neutral — no PIT EPS-revision snapshots
+                technical_raw=technical_raw,
             )
         )
     return factors
