@@ -769,3 +769,36 @@ multi-year data — or was it a 2025 mean-reversion artifact? **One clean test, 
 more in-sample tuning.** Do NOT fine-tune the winner, do NOT sweep technical
 proportions, and do NOT switch `qivc paper` off the v3.0 baseline — paper-trading
 continues on the actually-built model to gather honest forward data.
+
+## Task 14 — PRE-REGISTERED criterion for the free SEC-based PIT validation
+
+> ⚠️ **Committed BEFORE any Task-14 data was collected** (this section is the first
+> action of Task 14), so the pass/fail bar cannot be moved after seeing results.
+> Free-data path: SEC Form 25/15 delisting filings + free Russell 2000 historical
+> membership + conservative pre-registered delisting-return rules. Still
+> survivor-bias-corrected IN-SAMPLE — **a pass means "worth forward validation,"
+> NOT "deploy."** DO NOT DEPLOY regardless of outcome.
+
+**Hypotheses (frozen — only these 3, no new weightings, no tuning):**
+- H10 baseline: 40/30/20/10/0 (insider/quality/valuation/momentum/technical)
+- H13: 40/0/20/10/30
+- H14: 50/0/10/10/30
+
+**Primary test — 2 years (2022 + 2025):** Does H14 (and H13) beat H10's pooled
+Score-Return R² in **BOTH** 2022 (trend/down regime) **AND** 2025 (mean-reversion
+regime)?
+- **FAIL in 2022 → "regime artifact, not durable edge." STOP.** Do not deploy. Do
+  not collect 2023/2024. 2022 is the decisive year.
+- **PASS both → proceed to the 4-year confirmation.**
+
+**Confirmation test — 4 years (add 2023 + 2024):** Does the R² improvement hold in
+**≥3 of 4 years, INCLUDING 2022**?
+- **Yes → strongest evidence the project has produced.** Next step is careful
+  forward paper-trading — still NOT blind deployment.
+- **No → the 2-year pass was partly luck; heavy skepticism.**
+
+**Conservative, pre-registered delisting-return rules (Phase B; not tuned):**
+bankruptcy/liquidation/Ch.7/11 → −90%; acquisition/merger → last available price;
+listing-standard violation / moved-to-OTC → last major-exchange close (floor,
+no further price); unknown/ambiguous → −50% (conservative-uncertain). The direction
+is the point: stop pretending delisted holds vanished, and penalize them.
