@@ -85,6 +85,44 @@ _MIGRATIONS: list[str] = [
         status         VARCHAR                   -- 'complete' | 'partial' | 'failed'
     )
     """,
+    # ------------------------------------------------------------------
+    # Point-in-time IWM (Russell 2000) membership (Task 14 Phase B).
+    #
+    # One row per (as_of_date x holding) parsed from iShares IWM NPORT-P
+    # filings on SEC EDGAR. CUSIP/ISIN are mapped to a ticker via OpenFIGI
+    # (cached). `mapped_flag` is FALSE for holdings we could NOT resolve to a
+    # ticker — these are FLAGGED AND COUNTED, never silently dropped (a
+    # silently-dropped delisted name would reintroduce the survivor bias).
+    # See scripts/load_pit_membership.py and BACKTEST_PIT_MEMBERSHIP_FEASIBILITY.md.
+    # ------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS iwm_pit_constituents (
+        as_of_date     DATE     NOT NULL,   -- N-PORT period end (e.g. 2022-06-30)
+        ticker         VARCHAR,             -- NULL when unmapped
+        cusip          VARCHAR,
+        isin           VARCHAR,
+        name           VARCHAR  NOT NULL,
+        mapping_source VARCHAR  NOT NULL,   -- openfigi_cusip|openfigi_isin|unmapped
+        mapped_flag    BOOLEAN  NOT NULL,
+        filed_date     DATE,                -- EDGAR filing date (for no-look-ahead dating)
+        accession      VARCHAR  NOT NULL
+    )
+    """,
+    # SEC Form 25/15 delisting events (Task 14 Phase B). Parsed from EDGAR
+    # quarterly full-index. `reason` is best-effort (Form 25/15 rarely states a
+    # clean category) and defaults to 'unknown' -> conservative -50% in B3.
+    """
+    CREATE TABLE IF NOT EXISTS delistings_historical (
+        cik            VARCHAR  NOT NULL,
+        company_name   VARCHAR  NOT NULL,
+        ticker         VARCHAR,             -- resolved via SEC company_tickers where possible
+        form_type      VARCHAR  NOT NULL,   -- 25-NSE | 25 | 15-12B | 15-12G | 15-15D | ...
+        filed_date     DATE     NOT NULL,
+        reason         VARCHAR  NOT NULL,   -- bankruptcy|acquisition|listing_violation|unknown
+        accession      VARCHAR  NOT NULL,
+        source_quarter VARCHAR  NOT NULL    -- e.g. '2022q2'; idempotent re-import
+    )
+    """,
 ]
 
 
