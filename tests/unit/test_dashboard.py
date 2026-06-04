@@ -141,6 +141,56 @@ def test_equity_dates_are_forward_only(tmp_path: Path) -> None:
         assert pt["iso"] <= _TODAY.isoformat()
 
 
+def _write_records(tmp_path: Path, recs: list[dict]) -> str:
+    p = tmp_path / "l.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    return str(p)
+
+
+def _cash_record(as_of: str, n_scored: int) -> dict:
+    return {"as_of": as_of, "config": _CONFIG, "regime": "risk-on",
+            "equity_pct": 0.0, "n_scored": n_scored, "positions": []}
+
+
+def test_empty_state_zero_candidates_tight_window(tmp_path: Path) -> None:
+    """W14-style: ledger HAS a rebalance that scored 0 -> tight-window cash message.
+
+    The message is computed server-side (meta.emptyMessage), so it is the ONLY
+    empty-state text in the output and is distinguishable from the new-ledger case."""
+    led = _write_records(tmp_path, [_cash_record("2026-06-04", 0)])
+    data = build_dashboard_data(led, _CONFIG, price_provider=FakePrices(),
+                                today=_TODAY, window=14)
+    assert data["meta"]["latest"]["n_scored"] == 0 and data["meta"]["window"] == 14
+    msg = data["meta"]["emptyMessage"]
+    assert "0 candidates this rebalance" in msg
+    assert "14-day window" in msg
+    assert "100% cash" in msg and "tight-window tradeoff" in msg
+    assert "accumulating forward data" not in msg
+    # the selected message (ASCII chunk) reaches the page; only this branch's text
+    # is embedded, so it's distinguishable from the new-ledger message
+    assert "tight-window tradeoff" in render_html(data)
+
+
+def test_empty_state_scored_but_none_cleared(tmp_path: Path) -> None:
+    """Scored >0 but held 0 (threshold) -> distinct message, not the tight-window one."""
+    led = _write_records(tmp_path, [_cash_record("2026-06-04", 18)])
+    msg = build_dashboard_data(led, _CONFIG, price_provider=FakePrices(),
+                               today=_TODAY)["meta"]["emptyMessage"]
+    assert "0 held this rebalance" in msg
+    assert "scored 18 insider-active" in msg
+    assert "none cleared the entry threshold" in msg
+    assert "tight-window tradeoff" not in msg
+
+
+def test_empty_state_new_ledger_message(tmp_path: Path) -> None:
+    data = build_dashboard_data(str(tmp_path / "none.jsonl"), _CONFIG,
+                                price_provider=FakePrices(), today=_TODAY)
+    assert data["meta"]["latest"] is None
+    msg = data["meta"]["emptyMessage"]
+    assert "accumulating forward data" in msg
+    assert "0 candidates this rebalance" not in msg
+
+
 def test_empty_ledger_renders_without_error(tmp_path: Path) -> None:
     data = build_dashboard_data(
         str(tmp_path / "nope.jsonl"), _CONFIG, price_provider=FakePrices(), today=_TODAY

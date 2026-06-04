@@ -57,7 +57,7 @@ def make_handler(
     def _data(cfg: PaperConfig, selected: str) -> dict[str, Any]:
         data = build_dashboard_data(
             cfg.ledger, cfg.config, price_provider=price_provider,
-            today=today_fn(), delisting_lookup=delisting_lookup,
+            today=today_fn(), delisting_lookup=delisting_lookup, window=cfg.window,
         )
         if multi:
             data["meta"]["configs"] = _selector_meta(configs, selected)

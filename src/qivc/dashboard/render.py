@@ -304,7 +304,8 @@ document.querySelectorAll('#modeToggle button').forEach(b=>{
   const facBars=f=>'<span class="facs">'+(f||[]).map((v,i)=>
     `<span class="fac ${w[i]===0?'zero':''}" style="height:${4+v*14}px;background:${FAC_COLORS[i]}"></span>`).join('')+'</span>';
   if(!PAPER_DATA.closed.length && !PAPER_DATA.open.length){
-    tb.innerHTML='<tr><td colspan="9" class="empty">No positions yet — the ledger is accumulating forward data. Run <b>qivc paper</b> to record signals.</td></tr>';return;}
+    const msg=M.emptyMessage||'No positions yet — accumulating forward data.';
+    tb.innerHTML=`<tr><td colspan="9" class="empty">${msg}</td></tr>`;return;}
   const tkCell=tk=>DETAIL_LINKS?`<a href="/t/${tk}" style="color:inherit;text-decoration:underline dotted">${tk}</a>`:tk;
   PAPER_DATA.closed.forEach(t=>{
     const del=t.delisted?`<span class="status-pill s-delist">delisted·${t.delisted}</span> `:'';

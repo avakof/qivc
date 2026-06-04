@@ -167,15 +167,23 @@ def build_dashboard_data(
     price_provider: PriceProvider,
     today: _dt.date,
     delisting_lookup: Callable[[str], Any] | None = None,
+    window: int = 90,
 ) -> dict[str, Any]:
     """Assemble the PAPER_DATA dict from the live ledger (+ live marks)."""
     records = read_records(ledger_path, config)
+    last = records[-1] if records else None
     meta = {
         "weights": BASELINE_WEIGHTS, "config": config,
         "started": records[0].as_of if records else None,
         "asOf": today.isoformat(), "regimeSource": "FRED (captured per snapshot)",
-        "holdTarget": _hold_target(config),
+        "holdTarget": _hold_target(config), "window": window,
+        # latest rebalance summary — lets the empty-state distinguish "ran, chose
+        # cash (0 candidates)" from "brand-new empty ledger".
+        "latest": None if last is None else {
+            "as_of": last.as_of, "n_scored": last.n_scored, "n_held": len(last.positions),
+        },
     }
+    meta["emptyMessage"] = _empty_message(last, window)
     if not records:
         return _empty(meta)
 
@@ -217,6 +225,24 @@ def build_dashboard_data(
         "meta": meta, "headline": headline, "closed": closed, "open": open_,
         "equity": equity, "regime": regime,
     }
+
+
+def _empty_message(last: PaperRecord | None, window: int) -> str:
+    """Precise empty-state text: distinguish a new ledger from a real 0-candidate run."""
+    if last is None:
+        return ("No positions yet — the ledger is accumulating forward data. "
+                "Run qivc paper to record signals.")
+    if last.n_scored == 0:
+        return (
+            f"0 candidates this rebalance ({last.as_of}) — no opportunistic insider "
+            f"clusters within the {window}-day window. The strategy is in 100% cash. "
+            "(This is the tight-window tradeoff: fewer qualifying clusters than the "
+            "90-day baseline.)"
+        )
+    return (
+        f"0 held this rebalance ({last.as_of}) — scored {last.n_scored} insider-active "
+        "name(s) but none cleared the entry threshold. 100% cash."
+    )
 
 
 def _empty(meta: dict[str, Any]) -> dict[str, Any]:
