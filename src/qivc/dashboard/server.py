@@ -91,6 +91,7 @@ def make_handler(
                 detail = build_ticker_detail(
                     cfg.ledger, cfg.config, ticker, db_path=db_path, today=today_fn(),
                     profile_fetch=profile_fetch, price_provider=price_provider,
+                    ohlcv_fetch=getattr(price_provider, "daily_ohlcv", None),
                     window_days=cfg.window,
                 )
                 _send(self, render_detail_html(detail).encode("utf-8"))

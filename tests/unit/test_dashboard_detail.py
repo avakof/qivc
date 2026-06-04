@@ -187,6 +187,22 @@ class _FakePrices:
         return out
 
 
+def test_inputs_panel_reconciles_with_opportunistic_table_rows(tmp_path: Path) -> None:
+    """Fix 2: the factor-inputs panel's insider counts equal the opportunistic-tagged
+    Form 4 rows (count, distinct insiders, $ total)."""
+    db = str(tmp_path / "q.db")
+    _seed_form4(db)
+    detail = build_ticker_detail(
+        _write_ledger(tmp_path), _CONFIG, "AAOI", db_path=db, today=_TODAY,
+        profile_fetch=lambda t: _FAKE_PROFILE,
+    )
+    agg = detail["insider_aggregates"]
+    opp = [r for r in detail["form4"] if r["classification"] == "opportunistic"]
+    assert agg["n_opportunistic"] == len(opp)
+    assert agg["cluster_size"] == len({r["insider"] for r in opp})
+    assert agg["total_usd"] == sum(r["value"] for r in opp)
+
+
 def test_technical_indicators_reference_values(tmp_path: Path) -> None:
     db = str(tmp_path / "q.db")
     _seed_form4(db)
@@ -207,6 +223,71 @@ def test_technical_indicators_reference_values(tmp_path: Path) -> None:
     assert "0% weight · SHELVED" in html
     assert "failed the 2022 PIT regime test" in html
     assert "does NOT contribute to the composite or candidacy" in html
+
+
+def _ohlcv_fetch(ticker, start, end):  # type: ignore[no-untyped-def]
+    """260 declining daily bars ending at `end` — enough for all indicators."""
+    days = [(end - dt.timedelta(days=i)) for i in range(260)][::-1]
+    out = {"high": {}, "low": {}, "close": {}, "volume": {}}
+    for i, day in enumerate(days):
+        c = 300.0 - i * 0.5
+        iso = day.isoformat()
+        out["close"][iso] = c
+        out["high"][iso] = c + 1
+        out["low"][iso] = c - 1
+        out["volume"][iso] = 1000.0
+    return out
+
+
+def test_indicators_panel_renders_with_shelved_flag(tmp_path: Path) -> None:
+    db = str(tmp_path / "q.db")
+    _seed_form4(db)
+    detail = build_ticker_detail(
+        _write_ledger(tmp_path), _CONFIG, "AAOI", db_path=db, today=_TODAY,
+        profile_fetch=lambda t: _FAKE_PROFILE, ohlcv_fetch=_ohlcv_fetch,
+    )
+    assert detail["indicators"] is not None
+    assert detail["indicators"]["momentum"]              # populated
+    html = render_detail_html(detail)
+    assert "Technical indicators (reference only)" in html
+    # standing flag on the panel
+    assert "0% weight · shelved (failed 2022 PIT regime test) · reference only" in html
+    assert "does NOT affect candidacy" in html
+    # the three groups + a representative indicator
+    assert "Momentum" in html and "Mean-reversion" in html and "Volume / conviction" in html
+    assert "MACD" in html and "Stochastic" in html and "Money Flow Index" in html
+
+
+def test_indicators_do_not_change_composite_or_candidacy(tmp_path: Path) -> None:
+    """The reference panel is display-only: composite + mechanics are identical
+    whether or not the indicators are computed."""
+    db = str(tmp_path / "q.db")
+    _seed_form4(db)
+    led = _write_ledger(tmp_path)
+    base = build_ticker_detail(led, _CONFIG, "AAOI", db_path=db, today=_TODAY,
+                               profile_fetch=lambda t: _FAKE_PROFILE)
+    withind = build_ticker_detail(led, _CONFIG, "AAOI", db_path=db, today=_TODAY,
+                                  profile_fetch=lambda t: _FAKE_PROFILE, ohlcv_fetch=_ohlcv_fetch)
+    assert base["indicators"] is None and withind["indicators"] is not None
+    assert base["header"]["composite"] == withind["header"]["composite"]
+    assert base["mechanics"] == withind["mechanics"]      # score breakdown unchanged
+    assert base["insider_aggregates"] == withind["insider_aggregates"]
+
+
+def test_indicators_panel_degrades_on_short_history(tmp_path: Path) -> None:
+    db = str(tmp_path / "q.db")
+    _seed_form4(db)
+
+    def short_ohlcv(ticker, start, end):  # type: ignore[no-untyped-def]
+        return {"high": {}, "low": {}, "close": {}, "volume": {}}  # no usable history
+
+    detail = build_ticker_detail(
+        _write_ledger(tmp_path), _CONFIG, "AAOI", db_path=db, today=_TODAY,
+        profile_fetch=lambda t: _FAKE_PROFILE, ohlcv_fetch=short_ohlcv,
+    )
+    assert detail["indicators"] is None                   # nothing computable -> None
+    html = render_detail_html(detail)
+    assert "insufficient price history for the reference indicators" in html
 
 
 def test_technical_absent_without_price_provider(tmp_path: Path) -> None:

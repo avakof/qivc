@@ -575,6 +575,53 @@ def _money(v: Any) -> str:
     return f"${n:,.0f}"
 
 
+_IND_FLAG = (
+    "0% weight · shelved (failed 2022 PIT regime test) · reference only · does NOT "
+    "affect candidacy"
+)
+_IND_GROUPS = [("momentum", "Momentum"), ("reversion", "Mean-reversion / oversold"),
+               ("volume", "Volume / conviction")]
+
+
+def _indicators_panel(panel: dict[str, Any] | None, tech: dict[str, Any] | None) -> str:
+    """The comprehensive reference-only technical-indicators card (display only)."""
+    blended = "—" if not tech else _esc(tech.get("blended"))
+    flag = (
+        '<div class="callout" style="border-left-color:var(--neg);padding:11px 14px">'
+        f'<b>Technical: {_IND_FLAG}.</b><br>blended technical score (0.5·invRSI + '
+        f'0.5·%-below-high, the only technical number ever used, at 0% weight): {blended}'
+        "</div>"
+    )
+    if not panel:
+        inner = ('<div class="empty">insufficient price history for the reference '
+                 "indicators</div>")
+    else:
+        blocks = []
+        for key, label in _IND_GROUPS:
+            rows = panel.get(key) or []
+            if not rows:
+                continue
+            trs = "".join(
+                f'<tr><td class="l">{_esc(r["name"])}</td>'
+                f'<td>{_esc(r["value"])}</td>'
+                f'<td class="l muted">{_esc(r["reading"])}</td></tr>'
+                for r in rows
+            )
+            blocks.append(
+                f'<div style="margin-top:12px"><div class="sec-note">{label}</div>'
+                '<div class="tbl-wrap" style="border:none"><table style="min-width:0">'
+                f'<tbody>{trs}</tbody></table></div></div>'
+            )
+        inner = "".join(blocks)
+    return (
+        '<div class="card" style="margin-top:1px"><h4>Technical indicators '
+        "(reference only)</h4>"
+        '<div class="cnote">Computed live as of entry. Context for reading one name — '
+        "NOT part of the score, the candidacy, or any weight.</div>"
+        f"{flag}{inner}</div>"
+    )
+
+
 def render_detail_html(detail: dict[str, Any]) -> str:
     """Render the factual ticker drill-down page (same design; no investment thesis)."""
     tk = _esc(detail.get("ticker"))
@@ -657,6 +704,9 @@ def render_detail_html(detail: dict[str, Any]) -> str:
         '<b>Momentum</b> (10%): neutral (no PIT EPS-revision source).</div>'
         f'{tech_block}</div>'
     )
+
+    # Comprehensive technical indicators — REFERENCE ONLY (display, 0% weight)
+    body.append(_indicators_panel(detail.get("indicators"), tech))
 
     # 3. Insider evidence — raw Form 4
     if detail["form4"]:

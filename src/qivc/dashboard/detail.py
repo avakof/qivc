@@ -85,8 +85,13 @@ def ticker_form4_history(
     'outside window'.
     """
     from qivc.data.bulk_loader import read_purchases
+    from qivc.filters.cluster_detector import dedupe_by_accession
 
-    all_txns = read_purchases(db_path, _dt.date(2006, 1, 1), entry_date, ticker=ticker)
+    # Dedupe by accession — one filing is one event, exactly as the scorer counts it —
+    # so the opportunistic-tagged rows reconcile with the factor-inputs panel.
+    all_txns = dedupe_by_accession(
+        read_purchases(db_path, _dt.date(2006, 1, 1), entry_date, ticker=ticker)
+    )
     _win, cls = _insider_window(db_path, ticker, entry_date, window_days)
     ws_iso = (entry_date - _dt.timedelta(days=window_days)).isoformat()
     rows = []
@@ -204,6 +209,34 @@ def technical_indicators(
     }
 
 
+OhlcvFetch = Callable[[str, _dt.date, _dt.date], dict[str, dict[str, float]]]
+
+
+def technical_panel(
+    ticker: str, entry_date: _dt.date, ohlcv_fetch: OhlcvFetch | None
+) -> dict[str, list[dict[str, Any]]] | None:
+    """
+    Comprehensive REFERENCE-ONLY technical indicators as of entry (momentum /
+    reversion / volume). Display-only: does NOT affect the composite or candidacy.
+    None if no OHLCV source / insufficient history.
+    """
+    if ohlcv_fetch is None:
+        return None
+    from qivc.dashboard.indicators import compute_indicators
+
+    o = ohlcv_fetch(ticker, entry_date - _dt.timedelta(days=400), entry_date)
+    cutoff = entry_date.isoformat()
+    dates = sorted(d for d in o.get("close", {}) if d <= cutoff)
+    if not dates:
+        return None
+    highs = [o["high"].get(d, o["close"][d]) for d in dates]
+    lows = [o["low"].get(d, o["close"][d]) for d in dates]
+    closes = [o["close"][d] for d in dates]
+    vols = [o.get("volume", {}).get(d, 0.0) for d in dates]
+    panel = compute_indicators(highs, lows, closes, vols)
+    return panel if any(panel.values()) else None
+
+
 # ---------------------------------------------------------------------------
 # Assemble the detail view
 # ---------------------------------------------------------------------------
@@ -237,6 +270,7 @@ def build_ticker_detail(
     today: _dt.date,
     profile_fetch: ProfileFetch | None = None,
     price_provider: PriceProvider | None = None,
+    ohlcv_fetch: OhlcvFetch | None = None,
     window_days: int = _INSIDER_LOOKBACK_DAYS,
 ) -> dict[str, Any]:
     """Assemble the full factual drill-down for *ticker* (or a not-found shell).
@@ -282,6 +316,7 @@ def build_ticker_detail(
         "inputs": dict(span.inputs) if has_inputs else None,
         "insider_aggregates": agg,
         "technical": technical_indicators(ticker, span.entry_date, price_provider),
+        "indicators": technical_panel(ticker, entry, ohlcv_fetch),
         "form4": history,
         "profile": profile,
     }

@@ -16,8 +16,10 @@ from qivc.dashboard.detail import (
     build_ticker_detail,
     company_profile,
     technical_indicators,
+    technical_panel,
     ticker_form4_history,
 )
+from qivc.dashboard.indicators import compute_indicators
 from qivc.dashboard.prices import YFinancePriceProvider
 from qivc.dashboard.render import render_compare_html, render_detail_html, render_html
 from qivc.dashboard.server import create_server, make_handler
@@ -32,6 +34,7 @@ __all__ = [
     "build_dashboard_data",
     "build_ticker_detail",
     "company_profile",
+    "compute_indicators",
     "create_server",
     "make_handler",
     "read_records",
@@ -41,6 +44,7 @@ __all__ = [
     "render_html",
     "sample_size_label",
     "technical_indicators",
+    "technical_panel",
     "ticker_form4_history",
     "top3_concentration",
 ]

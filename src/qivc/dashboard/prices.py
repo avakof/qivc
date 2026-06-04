@@ -16,6 +16,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 DEFAULT_CACHE = "data/paper/_price_cache.json"
+_OHLCV_CACHE = "data/paper/_ohlcv_cache.json"
 _TTL_SECONDS = 15 * 60
 
 
@@ -60,6 +61,41 @@ class YFinancePriceProvider:
         import time
 
         return time.time()
+
+    def daily_ohlcv(
+        self, ticker: str, start: _dt.date, end: _dt.date
+    ) -> dict[str, dict[str, float]]:
+        """{high|low|close|volume: {ISO date: value}} for one ticker (cached, TTL)."""
+        key = f"{ticker}|{start}|{end}"
+        p = Path(_OHLCV_CACHE)
+        if p.exists() and (self._mtime_now() - p.stat().st_mtime) <= _TTL_SECONDS:
+            blob = json.loads(p.read_text())
+            if blob.get("key") == key:
+                return blob["data"]  # type: ignore[no-any-return]
+        data = self._fetch_ohlcv(ticker, start, end)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"key": key, "data": data}))
+        return data
+
+    def _fetch_ohlcv(
+        self, ticker: str, start: _dt.date, end: _dt.date
+    ) -> dict[str, dict[str, float]]:
+        import yfinance as yf
+
+        raw = yf.download(
+            ticker, start=str(start), end=str(end + _dt.timedelta(days=2)),
+            progress=False, auto_adjust=True,
+        )
+        out: dict[str, dict[str, float]] = {"high": {}, "low": {}, "close": {}, "volume": {}}
+        if raw is None or not hasattr(raw, "columns") or raw.empty:
+            return out
+        for field, key in (("High", "high"), ("Low", "low"), ("Close", "close"),
+                           ("Volume", "volume")):
+            col = raw[field]
+            if hasattr(col, "columns"):  # single-ticker DataFrame under MultiIndex
+                col = col.iloc[:, 0]
+            out[key] = {d.date().isoformat(): float(v) for d, v in col.dropna().items()}
+        return out
 
     # -- fetch --
     def _fetch(
