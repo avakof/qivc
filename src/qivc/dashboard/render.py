@@ -484,6 +484,22 @@ def render_detail_html(detail: dict[str, Any]) -> str:
         f'{"—" if inp.get("gpa") is None else f"{float(inp['gpa']):.3f}"}'
         if inp else "input detail not recorded for this entry"
     )
+    tech = detail.get("technical")
+    if tech:
+        tvals = (
+            f'RSI(14) {_esc(tech.get("rsi"))} · '
+            f'{_esc(tech.get("pct_below_high"))}% below 60-day high · '
+            f'blended technical score {_esc(tech.get("blended"))}'
+        )
+    else:
+        tvals = "values not available (no price data)"
+    tech_block = (
+        '<div class="callout" style="border-left-color:var(--neg);margin-top:12px;'
+        'padding:11px 14px">'
+        f'<b>Technical: 0% weight · SHELVED</b> (regime-conditional, failed the 2022 PIT '
+        'regime test, Task 14) · shown for reference only, does NOT contribute to the '
+        f'composite or candidacy.<br>{tvals}</div>'
+    )
     body.append(
         '<div class="card" style="margin-top:1px"><h4>Factor inputs</h4>'
         '<div class="cnote">The underlying data behind each weight.</div>'
@@ -493,8 +509,8 @@ def render_detail_html(detail: dict[str, Any]) -> str:
         f'{agg["lookback_days"]}-day lookback.<br>'
         f'<b>Quality</b> (30%): {inp_line}.<br>'
         '<b>Valuation</b> (20%): neutral (no PIT sector-median source).<br>'
-        '<b>Momentum</b> (10%): neutral (no PIT EPS-revision source).<br>'
-        '<b>Technical</b> (0%): shelved — regime-conditional per Task 14.</div></div>'
+        '<b>Momentum</b> (10%): neutral (no PIT EPS-revision source).</div>'
+        f'{tech_block}</div>'
     )
 
     # 3. Insider evidence — raw Form 4

@@ -19,7 +19,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from qivc.dashboard.build import BASELINE_WEIGHTS, read_records, reconstruct_trades
+from qivc.dashboard.build import (
+    BASELINE_WEIGHTS,
+    PriceProvider,
+    read_records,
+    reconstruct_trades,
+)
 
 log = logging.getLogger(__name__)
 
@@ -137,6 +142,43 @@ def company_profile(
 
 
 # ---------------------------------------------------------------------------
+# Technical indicators (REFERENCE ONLY — 0% weight, shelved per Task 14)
+# ---------------------------------------------------------------------------
+def technical_indicators(
+    ticker: str, entry_date: str, price_provider: PriceProvider | None
+) -> dict[str, Any] | None:
+    """
+    RSI(14), % below the 60-day high, and the blended oversold score AS OF the entry
+    date — computed live from prices for REFERENCE only. The technical factor has 0%
+    weight (shelved, regime-conditional, failed the 2022 PIT test); these values do
+    NOT affect the composite or candidacy. None if no price provider / data.
+    """
+    if price_provider is None:
+        return None
+    from qivc.backtest.technical import (
+        HIGH_LOOKBACK,
+        pct_below_high,
+        technical_oversold_score,
+        wilder_rsi,
+    )
+
+    ed = _dt.date.fromisoformat(entry_date)
+    series = price_provider.daily_closes([ticker], ed - _dt.timedelta(days=95), ed)
+    raw = series.get(ticker, {})
+    closes = [v for d, v in sorted(raw.items()) if d <= entry_date][-(HIGH_LOOKBACK + 5):]
+    if not closes:
+        return None
+    rsi = wilder_rsi(closes)
+    pbh = pct_below_high(closes)
+    score = technical_oversold_score(closes)
+    return {
+        "rsi": round(rsi, 1) if rsi is not None else None,
+        "pct_below_high": round(pbh * 100, 1) if pbh is not None else None,
+        "blended": round(score, 3) if score is not None else None,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Assemble the detail view
 # ---------------------------------------------------------------------------
 def _mechanics(components: dict[str, float]) -> list[dict[str, Any]]:
@@ -168,6 +210,7 @@ def build_ticker_detail(
     db_path: str,
     today: _dt.date,
     profile_fetch: ProfileFetch | None = None,
+    price_provider: PriceProvider | None = None,
     classify: bool = True,
 ) -> dict[str, Any]:
     """Assemble the full factual drill-down for *ticker* (or a not-found shell)."""
@@ -207,6 +250,7 @@ def build_ticker_detail(
         "mechanics": _mechanics(span.components),
         "inputs": dict(span.inputs) if has_inputs else None,
         "insider_aggregates": agg,
+        "technical": technical_indicators(ticker, span.entry_date, price_provider),
         "form4": history,
         "profile": profile,
     }

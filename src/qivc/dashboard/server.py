@@ -54,7 +54,7 @@ def make_handler(
                 ticker = path[3:].strip("/").upper()
                 detail = build_ticker_detail(
                     ledger, config, ticker, db_path=db_path, today=today_fn(),
-                    profile_fetch=profile_fetch,
+                    profile_fetch=profile_fetch, price_provider=price_provider,
                 )
                 _send(self, render_detail_html(detail).encode("utf-8"))
                 return

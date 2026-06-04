@@ -134,6 +134,55 @@ def test_build_detail_degrades_without_recorded_inputs(tmp_path: Path) -> None:
     assert "input detail not recorded for this entry" in html
 
 
+class _FakePrices:
+    """Falling series so RSI is low and % below high is positive (deterministic)."""
+
+    def daily_closes(self, tickers, start, end):  # type: ignore[no-untyped-def]
+        import datetime as _dt
+
+        out = {}
+        for t in tickers:
+            days = [(start + _dt.timedelta(days=i)) for i in range((end - start).days + 1)]
+            out[t] = {d.isoformat(): float(120 - i) for i, d in enumerate(days)}
+        return out
+
+
+def test_technical_indicators_reference_values(tmp_path: Path) -> None:
+    db = str(tmp_path / "q.db")
+    _seed_form4(db)
+    detail = build_ticker_detail(
+        _write_ledger(tmp_path), _CONFIG, "AAOI", db_path=db, today=_TODAY,
+        profile_fetch=lambda t: _FAKE_PROFILE, price_provider=_FakePrices(),
+    )
+    tech = detail["technical"]
+    assert tech is not None
+    assert tech["rsi"] == 0.0                      # monotonic decline -> RSI 0
+    assert tech["pct_below_high"] is not None and tech["pct_below_high"] > 0
+    assert tech["blended"] is not None
+
+    html = render_detail_html(detail)
+    # the technical values are shown...
+    assert "RSI(14)" in html and "below 60-day high" in html
+    # ...with the prominent shelved / 0% / reference-only flag
+    assert "0% weight · SHELVED" in html
+    assert "failed the 2022 PIT regime test" in html
+    assert "does NOT contribute to the composite or candidacy" in html
+
+
+def test_technical_absent_without_price_provider(tmp_path: Path) -> None:
+    db = str(tmp_path / "q.db")
+    _seed_form4(db)
+    detail = build_ticker_detail(
+        _write_ledger(tmp_path), _CONFIG, "AAOI", db_path=db, today=_TODAY,
+        profile_fetch=lambda t: _FAKE_PROFILE,  # no price_provider
+    )
+    assert detail["technical"] is None
+    html = render_detail_html(detail)
+    # the shelved flag is still shown even when values are unavailable
+    assert "0% weight · SHELVED" in html
+    assert "values not available" in html
+
+
 def test_detail_not_in_ledger(tmp_path: Path) -> None:
     db = str(tmp_path / "q.db")
     _seed_form4(db)
