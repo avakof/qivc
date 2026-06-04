@@ -116,6 +116,14 @@ _BODY = """
       <span class="wlabel">weights <span class="weights" id="wbar"></span> <b id="wtxt">40/30/20/10/0</b></span>
       <span>started <b id="h-started">—</b></span>
       <span>as of <b id="h-asof">—</b></span>
+      <span class="wlabel">auto-refresh
+        <span class="toggle" id="refreshToggle" style="margin-left:4px;vertical-align:-3px">
+          <button data-ms="0" class="on">off</button>
+          <button data-ms="300000">5m</button>
+          <button data-ms="900000">15m</button>
+        </span>
+        <span class="muted" id="lastUpdated" style="margin-left:8px"></span>
+      </span>
     </div>
   </header>
 
@@ -222,6 +230,25 @@ _SCRIPT = r"""
 const FAC_COLORS=['#C98A3A','#8FA85C','#6E8FA0','#B07AA0','#7A6648'];
 const fmt=v=>(v>=0?'+':'')+Number(v).toFixed(1)+'%';
 const M=PAPER_DATA.meta||{}, H=PAPER_DATA.headline||{};
+
+/* auto-refresh control — default OFF (this is a months-long test, not a ticker).
+   Choice persists in localStorage; on interval the page reloads, and in --serve
+   mode the server re-reads the ledger + re-marks prices on that load. */
+(()=>{
+  const KEY='qivc_refresh_ms';
+  const upd=document.getElementById('lastUpdated');
+  if(upd) upd.textContent='updated '+new Date().toLocaleTimeString();
+  const btns=document.querySelectorAll('#refreshToggle button');
+  let ms=parseInt(localStorage.getItem(KEY)||'0',10);
+  let timer=null;
+  const schedule=()=>{ if(timer) clearTimeout(timer); if(ms>0) timer=setTimeout(()=>location.reload(),ms); };
+  btns.forEach(b=>{
+    b.classList.toggle('on', parseInt(b.dataset.ms,10)===ms);
+    b.addEventListener('click',()=>{ ms=parseInt(b.dataset.ms,10); localStorage.setItem(KEY,ms);
+      btns.forEach(x=>x.classList.remove('on')); b.classList.add('on'); schedule(); });
+  });
+  schedule();
+})();
 
 /* header fill */
 document.getElementById('h-config').textContent=M.config||'—';

@@ -13,12 +13,15 @@ from qivc.dashboard.build import (
 )
 from qivc.dashboard.prices import YFinancePriceProvider
 from qivc.dashboard.render import render_html
+from qivc.dashboard.server import create_server, make_handler
 
 __all__ = [
     "BASELINE_WEIGHTS",
     "PriceProvider",
     "YFinancePriceProvider",
     "build_dashboard_data",
+    "create_server",
+    "make_handler",
     "read_records",
     "reconstruct_trades",
     "render_html",

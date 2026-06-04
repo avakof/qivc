@@ -712,15 +712,20 @@ def dashboard(
         "N10_thr90_hold30", "--config", help="Grid config label to read."
     ),
     out: str = typer.Option(
-        "data/paper/dashboard.html", "--out", help="Output HTML path."
+        "data/paper/dashboard.html", "--out", help="Output HTML path (one-shot mode)."
     ),
+    serve: bool = typer.Option(
+        False, "--serve", help="Run a live localhost server (re-reads ledger per refresh)."
+    ),
+    port: int = typer.Option(8000, "--port", help="Server port for --serve (default 8000)."),
     no_open: bool = typer.Option(False, "--no-open", help="Do not open the browser."),
 ) -> None:
     """
     Render the live forward paper-trade dashboard from the REAL qivc paper ledger.
 
-    Marks open positions with current yfinance prices; reconstructs the forward-only
-    equity curve; recomputes every panel from scratch. NO backtest / PIT / synthetic
+    Default: write a static HTML file and open it. With --serve: run a localhost
+    server (127.0.0.1 only) that re-reads the ledger and re-marks open positions at
+    current prices on every page refresh. Either way: NO backtest / PIT / synthetic
     data — begins near-empty and fills as the ledger accumulates. Local only, no
     orders, the PAPER — NOT VALIDATED banner is permanent.
     """
@@ -740,6 +745,34 @@ def dashboard(
         delisting_lookup = SecPitProvider(settings.db_path).get_delisting_event
     except Exception as exc:  # pragma: no cover - defensive
         typer.echo(f"(delisting marks unavailable: {exc})")
+
+    if serve:
+        import webbrowser
+
+        from qivc.dashboard.server import create_server
+
+        try:
+            httpd = create_server(
+                ledger, config, port=port, price_provider=YFinancePriceProvider(),
+                delisting_lookup=delisting_lookup,
+            )
+        except OSError as exc:
+            typer.echo(
+                f"Could not bind port {port} ({exc}). It may be in use — "
+                f"try another, e.g. `--port {port + 1}`."
+            )
+            raise typer.Exit(1) from exc
+        url = f"http://localhost:{port}"
+        typer.echo(f"Dashboard live at {url} — refresh the page to update. Ctrl-C to stop.")
+        if not no_open:
+            webbrowser.open(url)
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            typer.echo("\nStopped.")
+        finally:
+            httpd.server_close()
+        return
 
     data = build_dashboard_data(
         ledger,

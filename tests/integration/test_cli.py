@@ -550,6 +550,23 @@ def test_paper_writes_ledger_and_warns(patched_env: Path, monkeypatch: pytest.Mo
 
 
 # ---------------------------------------------------------------------------
+# dashboard (one-shot) — regression: still writes a static file
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_oneshot_writes_file(patched_env: Path) -> None:
+    out = patched_env / "dash.html"
+    result = runner.invoke(
+        cli_main.app,
+        ["dashboard", "--no-open", "--ledger", str(patched_env / "empty.jsonl"),
+         "--out", str(out)],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+    assert "not validated" in out.read_text().lower()  # permanent banner intact
+
+
+# ---------------------------------------------------------------------------
 # version
 # ---------------------------------------------------------------------------
 
