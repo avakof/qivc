@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import time
 
 import httpx
 
@@ -26,21 +27,50 @@ from qivc.schemas import MarketRegime
 log = logging.getLogger(__name__)
 
 _FRED_BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+_FRED_TIMEOUT = 20.0
+_FRED_BACKOFF = (1.0, 2.0, 4.0)  # retry waits; len+1 = total attempts
+
+# The neutral regime (risk-on, 100% equity): used when FRED has no pre-as_of data,
+# and as the graceful fallback when FRED is unreachable. The regime only scales
+# position SIZING — never which names are selected — so a neutral fallback leaves
+# signal recording fully intact.
+NEUTRAL_REGIME = MarketRegime(
+    vix_60d_sma=0.0, credit_spread_bps=0.0, yield_curve_bps=0.0,
+    value_growth_12m=0.0, regime="risk-on",
+)
 
 
 def _fred_as_of(client: httpx.Client, series_id: str, as_of: _dt.date) -> list[float]:
-    """Fetch a FRED series and return values for observations dated < as_of."""
-    resp = client.get(f"{_FRED_BASE}?id={series_id}")
-    resp.raise_for_status()
-    rows = _parse_fred_csv(resp.text)
-    cutoff = as_of.isoformat()
-    return [v for d, v in rows if d < cutoff]  # strict: only data observable before as_of
+    """Fetch a FRED series (retry-with-backoff on transport errors) -> values < as_of."""
+    last_exc: httpx.HTTPError | None = None
+    for attempt in range(len(_FRED_BACKOFF) + 1):
+        try:
+            resp = client.get(f"{_FRED_BASE}?id={series_id}")
+            resp.raise_for_status()
+            rows = _parse_fred_csv(resp.text)
+            cutoff = as_of.isoformat()
+            return [v for d, v in rows if d < cutoff]  # strict: observable before as_of
+        except httpx.TransportError as exc:  # ReadTimeout/ConnectError/etc.
+            last_exc = exc
+            if attempt < len(_FRED_BACKOFF):
+                log.warning(
+                    "FRED %s fetch failed (%s); retry %d/%d in %.0fs",
+                    series_id, type(exc).__name__, attempt + 1, len(_FRED_BACKOFF),
+                    _FRED_BACKOFF[attempt],
+                )
+                time.sleep(_FRED_BACKOFF[attempt])
+    assert last_exc is not None
+    raise last_exc
 
 
 def regime_as_of(as_of: _dt.date, client: httpx.Client | None = None) -> MarketRegime:
-    """Compute the MarketRegime observable strictly before ``as_of`` (PIT)."""
+    """Compute the MarketRegime observable strictly before ``as_of`` (PIT).
+
+    Raises ``httpx.HTTPError`` if FRED is unreachable after retries — callers that
+    must not crash on that should use :func:`regime_as_of_resilient`.
+    """
     owns = client is None
-    client = client or httpx.Client(timeout=30.0)
+    client = client or httpx.Client(timeout=_FRED_TIMEOUT)
     try:
         vix = _fred_as_of(client, "VIXCLS", as_of)
         credit = [v * 100 for v in _fred_as_of(client, "BAA10Y", as_of)]  # % -> bps
@@ -50,15 +80,9 @@ def regime_as_of(as_of: _dt.date, client: httpx.Client | None = None) -> MarketR
             client.close()
 
     if not vix:
-        # No FRED data before as_of — fail safe to risk-on (no spurious block).
+        # No FRED data before as_of — fail safe to neutral risk-on (no spurious block).
         log.warning("No FRED VIX data before %s; defaulting regime risk-on", as_of)
-        return MarketRegime(
-            vix_60d_sma=0.0,
-            credit_spread_bps=0.0,
-            yield_curve_bps=0.0,
-            value_growth_12m=0.0,
-            regime="risk-on",
-        )
+        return NEUTRAL_REGIME
 
     vix_60d_sma = _sma(vix, 60)
     credit_now = credit[-1] if credit else 0.0
@@ -78,3 +102,24 @@ def regime_as_of(as_of: _dt.date, client: httpx.Client | None = None) -> MarketR
         value_growth_12m=0.0,  # annotation only; PIT IVE-IVW spread omitted for determinism
         regime=regime,
     )
+
+
+def regime_as_of_resilient(
+    as_of: _dt.date, client: httpx.Client | None = None
+) -> tuple[MarketRegime, str]:
+    """
+    Regime + source tag, never raising on FRED being down. Returns
+    ``(regime, "fred_live")`` on success, or ``(NEUTRAL_REGIME, "fallback_neutral")``
+    if FRED is unreachable after retries (logged WARNING). The regime only scales
+    position sizing, so the fallback leaves signal recording unaffected — the daily
+    paper record always completes.
+    """
+    try:
+        return regime_as_of(as_of, client=client), "fred_live"
+    except httpx.HTTPError as exc:
+        log.warning(
+            "FRED unreachable after retries (%s) — using neutral regime for %s "
+            "(position sizing only; signal recording unaffected)",
+            type(exc).__name__, as_of,
+        )
+        return NEUTRAL_REGIME, "fallback_neutral"

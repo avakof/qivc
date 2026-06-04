@@ -660,10 +660,12 @@ def paper(
         else []
     )
 
-    positions, n_scored, regime, components = assemble_paper_portfolio(
+    positions, n_scored, regime, components, regime_source = assemble_paper_portfolio(
         settings, d, config, prev_positions
     )
-    record = build_record(d, config, regime, positions, n_scored, components)
+    record = build_record(
+        d, config, regime, positions, n_scored, components, regime_source=regime_source
+    )
     append_record(ledger, record)
 
     bar = "=" * 66
@@ -679,7 +681,10 @@ def paper(
     )
     typer.secho("  DO NOT DEPLOY — forward out-of-sample record only.", fg=typer.colors.YELLOW)
     typer.secho(bar, fg=typer.colors.YELLOW)
-    typer.echo(f"As-of: {record.as_of}   Config: {config}   Regime: {record.regime}")
+    _rsrc = "" if record.regime_source == "fred_live" else "  ⚠ regime=neutral fallback (FRED down)"
+    typer.echo(
+        f"As-of: {record.as_of}   Config: {config}   Regime: {record.regime}{_rsrc}"
+    )
     typer.echo(
         f"Scored (insider-active): {n_scored}   Held: {len(positions)}   "
         f"Equity: {record.equity_pct:.1f}%  (rest cash/T-bills)"

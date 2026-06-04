@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import logging
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from qivc.backtest.portfolio_constructor import GridConfig, Position
     from qivc.config import Settings
 
+_log = logging.getLogger(__name__)
 _EXCLUDE_SECTORS = {"Financials", "Real Estate"}
 _PRICE_WARMUP_DAYS = 95
 DEFAULT_LEDGER = "data/paper/ledger.jsonl"
@@ -55,6 +57,9 @@ class PaperRecord:
     equity_pct: float  # invested fraction (rest is cash/T-bills)
     n_scored: int  # size of the insider-active scored universe
     positions: list[PaperPosition]
+    # "fred_live" when the regime came from FRED; "fallback_neutral" when FRED was
+    # unreachable and a neutral (risk-on) regime was substituted (sizing only).
+    regime_source: str = "fred_live"
     disclaimer: str = (
         "RESEARCH ONLY — paper/intended book, NO orders placed, NO demonstrated "
         "edge. v3.0 is survivor-biased in-sample; this forward record is for "
@@ -94,6 +99,7 @@ def read_last_record(ledger_path: str | Path, config: str) -> PaperRecord | None
             equity_pct=rec["equity_pct"],
             n_scored=rec["n_scored"],
             positions=[PaperPosition(**pos) for pos in rec["positions"]],
+            regime_source=rec.get("regime_source", "fred_live"),
             disclaimer=rec.get("disclaimer", PaperRecord.disclaimer),
         )
     return last
@@ -106,11 +112,13 @@ def build_record(
     positions: list[Position],
     n_scored: int,
     components_by_ticker: dict[str, dict[str, float]] | None = None,
+    regime_source: str = "fred_live",
 ) -> PaperRecord:
     """Build a PaperRecord from constructed positions.
 
     *components_by_ticker* maps ticker -> the 5 factor sub-scores at entry (for the
-    dashboard micro-bars); omitted -> empty components.
+    dashboard micro-bars); omitted -> empty components. *regime_source* records
+    whether the regime came from FRED ("fred_live") or the neutral fallback.
     """
     comps = components_by_ticker or {}
     pos = [
@@ -131,6 +139,7 @@ def build_record(
         equity_pct=round(sum(p.weight for p in positions) * 100, 1),
         n_scored=n_scored,
         positions=pos,
+        regime_source=regime_source,
     )
 
 
@@ -149,18 +158,22 @@ def assemble_paper_portfolio(
     config: str,
     prev_positions: list[Position],
     cache_dir: str = "data/paper/_cache",
-) -> tuple[list[Position], int, MarketRegime, dict[str, dict[str, float]]]:
+) -> tuple[list[Position], int, MarketRegime, dict[str, dict[str, float]], str]:
     """
     Live single-date v3.0 build for *as_of*. Fetches regime, prices and EDGAR
     fundamentals for the insider-active universe, scores, and constructs the
     top-N book vs *prev_positions*. Returns (positions, n_scored, regime,
-    components_by_ticker) — the last maps ticker -> the 5 factor sub-scores.
+    components_by_ticker, regime_source).
+
+    The daily record is the priority: the regime fetch degrades to a neutral
+    fallback if FRED is unreachable, and the (non-essential) price/fundamentals
+    fetches are guarded so a network hang there cannot kill the run.
     """
     import httpx
 
     from qivc.backtest import providers
     from qivc.backtest.composite_scorer import score_universe
-    from qivc.backtest.pit_regime import regime_as_of
+    from qivc.backtest.pit_regime import regime_as_of_resilient
     from qivc.backtest.portfolio_constructor import construct_portfolio
     from qivc.backtest.universe import iwm_sector_map, iwm_tickers
     from qivc.backtest.v3_factors import assemble_factors, opportunistic_insider_raw
@@ -171,23 +184,32 @@ def assemble_paper_portfolio(
     universe = {t for t in iwm_tickers() if sector_map.get(t) not in _EXCLUDE_SECTORS}
     cache = providers.BacktestCache(Path(cache_dir) / as_of.isoformat())
 
-    with httpx.Client(timeout=30.0) as hc:
-        regime = regime_as_of(as_of, client=hc)
+    with httpx.Client(timeout=20.0) as hc:
+        regime, regime_source = regime_as_of_resilient(as_of, client=hc)
 
-    insider = opportunistic_insider_raw(settings.db_path, universe, as_of)
+    insider = opportunistic_insider_raw(settings.db_path, universe, as_of)  # local DB, no net
     active = sorted(insider)
     if active:
-        providers.build_price_cache(
-            cache,
-            active,
-            as_of - _dt.timedelta(days=_PRICE_WARMUP_DAYS),
-            as_of + _dt.timedelta(days=3),
-        )
-        client = EdgarClient(
-            settings.edgar_user_agent,
-            rate_limit_rps=getattr(settings, "edgar_rate_limit_rps", 8),
-        )
-        providers.build_fundamentals_cache(cache, client, [(t, as_of) for t in active])
+        # Prices (yfinance) are non-essential for the v3.0 baseline score; guard so a
+        # transient fetch failure cannot break the daily record.
+        try:
+            providers.build_price_cache(
+                cache, active,
+                as_of - _dt.timedelta(days=_PRICE_WARMUP_DAYS),
+                as_of + _dt.timedelta(days=3),
+            )
+        except Exception as exc:  # non-essential for the baseline score; must not crash
+            _log.warning("paper: price fetch failed (non-essential): %s", exc)
+        # Fundamentals (EDGAR) feed the quality factor; per-ticker failures already
+        # degrade to neutral, but guard the bulk call against a total network hang.
+        try:
+            client = EdgarClient(
+                settings.edgar_user_agent,
+                rate_limit_rps=getattr(settings, "edgar_rate_limit_rps", 8),
+            )
+            providers.build_fundamentals_cache(cache, client, [(t, as_of) for t in active])
+        except Exception as exc:  # quality degrades to neutral per missing-data rule
+            _log.warning("paper: fundamentals fetch failed (quality -> neutral): %s", exc)
     fund_provider = providers.make_fundamentals_provider(cache)
 
     factors = assemble_factors(
@@ -200,4 +222,4 @@ def assemble_paper_portfolio(
     scored = score_universe(factors)
     positions = construct_portfolio(scored, prev_positions, as_of, cfg, regime)
     components = {s.ticker: dict(s.components) for s in scored}
-    return positions, len(scored), regime, components
+    return positions, len(scored), regime, components, regime_source

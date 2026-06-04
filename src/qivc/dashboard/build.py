@@ -123,6 +123,7 @@ def read_records(ledger_path: str | Path, config: str | None = None) -> list[Pap
                 as_of=r["as_of"], config=r["config"], regime=r["regime"],
                 equity_pct=r["equity_pct"], n_scored=r["n_scored"],
                 positions=[PaperPosition(**pos) for pos in r["positions"]],
+                regime_source=r.get("regime_source", "fred_live"),
                 disclaimer=r.get("disclaimer", PaperRecord.disclaimer),
             )
         )
