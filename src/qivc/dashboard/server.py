@@ -17,7 +17,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 from qivc.dashboard.build import PriceProvider, build_dashboard_data
-from qivc.dashboard.render import render_html
+from qivc.dashboard.detail import ProfileFetch, build_ticker_detail
+from qivc.dashboard.render import render_detail_html, render_html
 
 LOCALHOST = "127.0.0.1"
 
@@ -29,8 +30,18 @@ def make_handler(
     price_provider: PriceProvider,
     today_fn: Callable[[], _dt.date],
     delisting_lookup: Callable[[str], Any] | None,
+    db_path: str,
+    profile_fetch: ProfileFetch | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """Build a request handler that re-reads the ledger + re-marks prices per request."""
+
+    def _send(handler: BaseHTTPRequestHandler, body: bytes, status: int = 200) -> None:
+        handler.send_response(status)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.end_headers()
+        handler.wfile.write(body)
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -39,23 +50,23 @@ def make_handler(
                 self.send_response(204)
                 self.end_headers()
                 return
+            if path.startswith("/t/"):  # ticker drill-down
+                ticker = path[3:].strip("/").upper()
+                detail = build_ticker_detail(
+                    ledger, config, ticker, db_path=db_path, today=today_fn(),
+                    profile_fetch=profile_fetch,
+                )
+                _send(self, render_detail_html(detail).encode("utf-8"))
+                return
             if path not in ("/", "/index.html"):
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(b"not found")
+                _send(self, b"not found", status=404)
                 return
             # Fresh read + fresh marks on EVERY request (never serve stale derived data).
             data = build_dashboard_data(
                 ledger, config, price_provider=price_provider,
                 today=today_fn(), delisting_lookup=delisting_lookup,
             )
-            body = render_html(data).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            _send(self, render_html(data, detail_links=True).encode("utf-8"))
 
         def log_message(self, *args: Any) -> None:  # keep the console quiet
             return
@@ -72,6 +83,8 @@ def create_server(
     host: str = LOCALHOST,
     today_fn: Callable[[], _dt.date] | None = None,
     delisting_lookup: Callable[[str], Any] | None = None,
+    db_path: str = "data/duckdb/qivc.db",
+    profile_fetch: ProfileFetch | None = None,
 ) -> HTTPServer:
     """
     Bind an HTTPServer on *host:port* (127.0.0.1 only by default). Raises OSError
@@ -80,5 +93,6 @@ def create_server(
     handler = make_handler(
         ledger, config, price_provider=price_provider,
         today_fn=today_fn or _dt.date.today, delisting_lookup=delisting_lookup,
+        db_path=db_path, profile_fetch=profile_fetch,
     )
     return HTTPServer((host, port), handler)

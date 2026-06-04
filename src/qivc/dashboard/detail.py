@@ -1,0 +1,212 @@
+"""
+Ticker drill-down data (Task 15.3) — a FACTUAL mechanics readout, not a pitch.
+
+Assembles, for one ticker: the composite score-mechanics breakdown, the raw Form 4
+insider evidence (from form4_historical, with CMP classification), the expanded
+factor inputs (from the ledger position + live insider aggregates), and a company
+snapshot (yfinance). It explains WHY THE ALGORITHM ranked the name — it never
+generates an investment thesis or persuasive narrative. The composite has shown no
+predictive power (R²≈0.004), so every detail view carries a standing honest-framing
+line and recommends nothing.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import json
+import logging
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from qivc.dashboard.build import BASELINE_WEIGHTS, read_records, reconstruct_trades
+
+log = logging.getLogger(__name__)
+
+_PROFILE_CACHE = "data/paper/_profile_cache.json"
+_PROFILE_TTL_S = 24 * 60 * 60
+_INSIDER_LOOKBACK_DAYS = 90
+_FACTORS = ["insider", "quality", "valuation", "momentum", "technical"]
+ProfileFetch = Callable[[str], dict[str, Any]]
+
+
+def _honest_line(entry_date: str) -> str:
+    return (
+        f"Candidate because it ranked top-decile by composite score on {entry_date}. "
+        "The composite has not shown predictive power (R²≈0.004 in backtesting); this "
+        "view explains the mechanics of the ranking, not a recommendation."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Form 4 insider evidence (from form4_historical; offline)
+# ---------------------------------------------------------------------------
+def ticker_form4_history(
+    db_path: str, ticker: str, *, as_of: _dt.date, classify: bool = True
+) -> list[dict[str, Any]]:
+    """Every P-code purchase for *ticker* (newest first) with CMP classification."""
+    from qivc.data.bulk_loader import read_purchases
+
+    txns = read_purchases(db_path, _dt.date(2006, 1, 1), as_of, ticker=ticker)
+    cls: dict[str, str] = {}
+    if classify and txns:
+        try:
+            from qivc.backtest.signal import _classify_window
+
+            cls = _classify_window(db_path, txns, as_of, 3)
+        except Exception as exc:  # classification is best-effort; show raw evidence anyway
+            log.warning("drill-down: insider classification failed for %s: %s", ticker, exc)
+    rows = []
+    for t in sorted(txns, key=lambda x: x.transaction_date, reverse=True):
+        role = (
+            "Officer" if t.is_officer
+            else "Director" if t.is_director
+            else "10% owner" if t.is_ten_percent_owner
+            else "—"
+        )
+        rows.append({
+            "insider": t.name, "role": role, "date": t.transaction_date.isoformat(),
+            "shares": round(t.shares), "value": round(t.value_usd),
+            "classification": cls.get(t.cik, "unclassified"),
+        })
+    return rows
+
+
+def insider_aggregates(
+    history: list[dict[str, Any]], entry_date: str
+) -> dict[str, Any]:
+    """Cluster aggregates over the opportunistic buys in the 90d before entry."""
+    end = entry_date
+    start = (
+        _dt.date.fromisoformat(entry_date) - _dt.timedelta(days=_INSIDER_LOOKBACK_DAYS)
+    ).isoformat()
+    window = [h for h in history if start <= h["date"] <= end]
+    opp = [h for h in window if h["classification"] == "opportunistic"]
+    return {
+        "lookback_days": _INSIDER_LOOKBACK_DAYS,
+        "n_in_window": len(window),
+        "n_opportunistic": len(opp),
+        "cluster_size": len({h["insider"] for h in opp}),
+        "total_usd": sum(h["value"] for h in opp),
+        "csuite": any(h["role"] == "Officer" for h in opp),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Company profile (yfinance .info; cached, injectable)
+# ---------------------------------------------------------------------------
+def _yf_profile(ticker: str) -> dict[str, Any]:
+    import yfinance as yf
+
+    info = yf.Ticker(ticker).info
+    return {
+        "company": info.get("shortName") or info.get("longName"),
+        "sector": info.get("sector"), "industry": info.get("industry"),
+        "market_cap": info.get("marketCap"),
+        "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
+        "summary": info.get("longBusinessSummary"),
+        "revenue": info.get("totalRevenue"),
+        "profit_margin": info.get("profitMargins"),
+    }
+
+
+def company_profile(
+    ticker: str, *, fetch: ProfileFetch | None = None, cache_path: str = _PROFILE_CACHE,
+    now: float | None = None,
+) -> dict[str, Any]:
+    """yfinance company snapshot, cached to disk (TTL 1 day). *fetch* injectable for tests."""
+    if fetch is not None:
+        return fetch(ticker)
+    import time
+
+    p = Path(cache_path)
+    blob: dict[str, Any] = {}
+    if p.exists() and (now or time.time()) - p.stat().st_mtime < _PROFILE_TTL_S:
+        blob = json.loads(p.read_text())
+        if ticker in blob:
+            return blob[ticker]  # type: ignore[no-any-return]
+    try:
+        prof = _yf_profile(ticker)
+    except Exception as exc:  # profile is non-essential context
+        log.warning("drill-down: profile fetch failed for %s: %s", ticker, exc)
+        prof = {"company": None, "sector": None, "industry": None}
+    blob[ticker] = prof
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(blob))
+    return prof
+
+
+# ---------------------------------------------------------------------------
+# Assemble the detail view
+# ---------------------------------------------------------------------------
+def _mechanics(components: dict[str, float]) -> list[dict[str, Any]]:
+    """Factual per-factor breakdown: sub-score x weight, phrased as 'what the score is'."""
+    out = []
+    for i, f in enumerate(_FACTORS):
+        w = BASELINE_WEIGHTS[i]
+        sub = components.get(f)
+        if f == "technical":
+            note = "shelved, 0% weight (regime-conditional per Task 14)"
+        elif f in ("valuation", "momentum"):
+            note = "neutral input (no PIT source); contributes the universe median"
+        elif w == max(BASELINE_WEIGHTS):
+            note = "the dominant driver of the composite"
+        else:
+            note = "contributes at its weight"
+        out.append({
+            "factor": f, "weight": w,
+            "sub_score": round(sub, 3) if sub is not None else None, "note": note,
+        })
+    return out
+
+
+def build_ticker_detail(
+    ledger: str,
+    config: str,
+    ticker: str,
+    *,
+    db_path: str,
+    today: _dt.date,
+    profile_fetch: ProfileFetch | None = None,
+    classify: bool = True,
+) -> dict[str, Any]:
+    """Assemble the full factual drill-down for *ticker* (or a not-found shell)."""
+    ticker = ticker.upper()
+    records = read_records(ledger, config)
+    closed, open_ = reconstruct_trades(records)
+    span = next((s for s in open_ if s.ticker == ticker), None)
+    status = "open"
+    if span is None:
+        cands = [s for s in closed if s.ticker == ticker]
+        span = max(cands, key=lambda s: s.exit_date or "", default=None)
+        status = "closed"
+    profile = company_profile(ticker, fetch=profile_fetch)
+    if span is None:
+        return {
+            "ticker": ticker, "found": False, "profile": profile,
+            "honest_line": (
+                "This ticker is not in the paper ledger. The drill-down explains the "
+                "mechanics of a ranking, not a recommendation."
+            ),
+        }
+
+    history = ticker_form4_history(db_path, ticker, as_of=today, classify=classify)
+    agg = insider_aggregates(history, span.entry_date)
+    has_inputs = bool(span.inputs)
+    return {
+        "ticker": ticker, "found": True, "status": status,
+        "honest_line": _honest_line(span.entry_date),
+        "header": {
+            "company": profile.get("company") or ticker,
+            "sector": profile.get("sector"), "industry": profile.get("industry"),
+            "current_price": profile.get("current_price"),
+            "composite": round(span.composite, 3),
+            "rank": "top-decile (entry rule: composite ≥ 90th percentile)",
+            "entry_date": span.entry_date,
+        },
+        "mechanics": _mechanics(span.components),
+        "inputs": dict(span.inputs) if has_inputs else None,
+        "insider_aggregates": agg,
+        "form4": history,
+        "profile": profile,
+    }

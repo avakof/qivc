@@ -47,6 +47,11 @@ class PaperPosition:
     # 5 factor sub-scores at entry (insider/quality/valuation/momentum/technical),
     # for the dashboard micro-bars. Empty for older records / when unavailable.
     components: dict[str, float] = field(default_factory=dict)
+    # Raw factor INPUTS at entry (fscore, gpa, insider_raw, valuation_raw,
+    # momentum_raw, technical_raw) for the ticker drill-down. Empty -> "input detail
+    # not recorded for this entry". Insider cluster aggregates are derived live from
+    # form4_historical, not stored here.
+    inputs: dict[str, float | int | None] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -113,14 +118,17 @@ def build_record(
     n_scored: int,
     components_by_ticker: dict[str, dict[str, float]] | None = None,
     regime_source: str = "fred_live",
+    inputs_by_ticker: dict[str, dict[str, float | int | None]] | None = None,
 ) -> PaperRecord:
     """Build a PaperRecord from constructed positions.
 
     *components_by_ticker* maps ticker -> the 5 factor sub-scores at entry (for the
-    dashboard micro-bars); omitted -> empty components. *regime_source* records
-    whether the regime came from FRED ("fred_live") or the neutral fallback.
+    dashboard micro-bars); *inputs_by_ticker* maps ticker -> the raw factor inputs
+    (for the drill-down); omitted -> empty. *regime_source* records whether the
+    regime came from FRED ("fred_live") or the neutral fallback.
     """
     comps = components_by_ticker or {}
+    inps = inputs_by_ticker or {}
     pos = [
         PaperPosition(
             ticker=p.ticker,
@@ -129,6 +137,7 @@ def build_record(
             composite=round(p.composite, 3),
             entry_date=p.entry_date.isoformat(),
             components={k: round(v, 3) for k, v in comps.get(p.ticker, {}).items()},
+            inputs=inps.get(p.ticker, {}),
         )
         for p in sorted(positions, key=lambda p: -p.weight)
     ]
@@ -158,12 +167,15 @@ def assemble_paper_portfolio(
     config: str,
     prev_positions: list[Position],
     cache_dir: str = "data/paper/_cache",
-) -> tuple[list[Position], int, MarketRegime, dict[str, dict[str, float]], str]:
+) -> tuple[
+    list[Position], int, MarketRegime, dict[str, dict[str, float]], str,
+    dict[str, dict[str, float | int | None]],
+]:
     """
     Live single-date v3.0 build for *as_of*. Fetches regime, prices and EDGAR
     fundamentals for the insider-active universe, scores, and constructs the
     top-N book vs *prev_positions*. Returns (positions, n_scored, regime,
-    components_by_ticker, regime_source).
+    components_by_ticker, regime_source, inputs_by_ticker).
 
     The daily record is the priority: the regime fetch degrades to a neutral
     fallback if FRED is unreachable, and the (non-essential) price/fundamentals
@@ -222,4 +234,12 @@ def assemble_paper_portfolio(
     scored = score_universe(factors)
     positions = construct_portfolio(scored, prev_positions, as_of, cfg, regime)
     components = {s.ticker: dict(s.components) for s in scored}
-    return positions, len(scored), regime, components, regime_source
+    inputs: dict[str, dict[str, float | int | None]] = {
+        f.ticker: {
+            "fscore": f.fscore, "gpa": f.gpa, "insider_raw": f.insider_raw,
+            "valuation_raw": f.valuation_raw, "momentum_raw": f.momentum_raw,
+            "technical_raw": f.technical_raw,
+        }
+        for f in factors
+    }
+    return positions, len(scored), regime, components, regime_source, inputs

@@ -511,9 +511,11 @@ def test_paper_writes_ledger_and_warns(patched_env: Path, monkeypatch: pytest.Mo
     _fc = {"insider": 0.8, "quality": 0.4, "valuation": 0.6, "momentum": 0.5, "technical": 0.5}
     fake_components = {"AAA": _fc, "BBB": _fc}
 
+    fake_inputs = {"AAA": {"fscore": 7, "gpa": 0.3}, "BBB": {"fscore": 5, "gpa": 0.2}}
+
     def fake_assemble(settings, as_of, config, prev_positions, cache_dir="x"):  # type: ignore[no-untyped-def]
         seen_prev.append(prev_positions)
-        return fake_positions, 7, regime, fake_components, "fred_live"
+        return fake_positions, 7, regime, fake_components, "fred_live", fake_inputs
 
     monkeypatch.setattr(cli_main, "assemble_paper_portfolio", fake_assemble)
     ledger = patched_env / "paper" / "ledger.jsonl"

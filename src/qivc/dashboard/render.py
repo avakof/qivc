@@ -11,6 +11,7 @@ a clear "accumulating forward data" state, never a crash.
 
 from __future__ import annotations
 
+import html as _html
 import json
 from typing import Any
 
@@ -285,10 +286,11 @@ document.querySelectorAll('#modeToggle button').forEach(b=>{
     `<span class="fac ${w[i]===0?'zero':''}" style="height:${4+v*14}px;background:${FAC_COLORS[i]}"></span>`).join('')+'</span>';
   if(!PAPER_DATA.closed.length && !PAPER_DATA.open.length){
     tb.innerHTML='<tr><td colspan="9" class="empty">No positions yet — the ledger is accumulating forward data. Run <b>qivc paper</b> to record signals.</td></tr>';return;}
+  const tkCell=tk=>DETAIL_LINKS?`<a href="/t/${tk}" style="color:inherit;text-decoration:underline dotted">${tk}</a>`:tk;
   PAPER_DATA.closed.forEach(t=>{
     const del=t.delisted?`<span class="status-pill s-delist">delisted·${t.delisted}</span> `:'';
     tb.insertAdjacentHTML('beforeend',`<tr>
-      <td class="tk">${t.ticker}</td>
+      <td class="tk">${tkCell(t.ticker)}</td>
       <td class="l">${del}<span class="status-pill s-closed">closed</span></td>
       <td class="l">${facBars(t.f)}</td>
       <td>${t.score.toFixed(2)}</td><td class="muted">${t.entry}</td>
@@ -299,7 +301,7 @@ document.querySelectorAll('#modeToggle button').forEach(b=>{
     const pct=Math.min(Math.round(o.holdDay/o.holdTgt*100),100);
     const del=o.delisted?`<span class="status-pill s-delist">delisted·${o.delisted}</span> `:'';
     tb.insertAdjacentHTML('beforeend',`<tr>
-      <td class="tk">${o.ticker}</td>
+      <td class="tk">${tkCell(o.ticker)}</td>
       <td class="l">${del}<span class="status-pill s-open">open</span></td>
       <td class="l">${facBars(o.f)}</td>
       <td>${o.score.toFixed(2)}</td><td class="muted">${o.entry}</td>
@@ -370,8 +372,25 @@ document.querySelectorAll('#modeToggle button').forEach(b=>{
 """
 
 
-def render_html(data: dict[str, Any]) -> str:
-    """Render the self-contained dashboard HTML from the live PAPER_DATA dict."""
+_FONTS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@'
+    "0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&family=IBM+Plex+Mono:ital,wght@"
+    '0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">'
+)
+_BANNER = (
+    '<div class="banner">● Paper ledger — <b>not validated · not deployed · no real '
+    "capital</b> — forward out-of-sample collection only</div>"
+)
+
+
+def render_html(data: dict[str, Any], *, detail_links: bool = False) -> str:
+    """Render the self-contained dashboard HTML from the live PAPER_DATA dict.
+
+    *detail_links* makes ticker names link to the /t/<ticker> drill-down (set in
+    --serve mode; False for the static one-shot file, where there's no server).
+    """
     payload = json.dumps(data, separators=(",", ":"))
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -379,17 +398,162 @@ def render_html(data: dict[str, Any]) -> str:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QIVC · Paper Ledger</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+{_FONTS}
 <style>{_CSS}</style>
 </head>
 <body>
 {_BODY}
 <script>
 const PAPER_DATA = {payload};
+const DETAIL_LINKS = {"true" if detail_links else "false"};
 {_SCRIPT}
 </script>
+</body>
+</html>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Ticker drill-down (factual mechanics readout — never a pitch)
+# ---------------------------------------------------------------------------
+def _esc(v: Any) -> str:
+    return _html.escape(str(v)) if v is not None else "—"
+
+
+def _money(v: Any) -> str:
+    if v is None:
+        return "—"
+    n = float(v)
+    for unit, div in (("B", 1e9), ("M", 1e6), ("K", 1e3)):
+        if abs(n) >= div:
+            return f"${n / div:.1f}{unit}"
+    return f"${n:,.0f}"
+
+
+def render_detail_html(detail: dict[str, Any]) -> str:
+    """Render the factual ticker drill-down page (same design; no investment thesis)."""
+    tk = _esc(detail.get("ticker"))
+    honest = _esc(detail.get("honest_line"))
+    body = [
+        f'<div class="callout" style="border-left-color:var(--amber)"><b>Why this is a '
+        f"candidate (mechanics, not advice):</b> {honest}</div>"
+    ]
+
+    if not detail.get("found"):
+        prof = detail.get("profile") or {}
+        body.append(
+            f'<div class="card" style="margin-top:18px"><h4>{tk}</h4>'
+            f'<div class="cnote">Not in the paper ledger — nothing to drill into yet. '
+            f'Sector {_esc(prof.get("sector"))} · industry {_esc(prof.get("industry"))}.</div></div>'
+        )
+        return _detail_doc(tk, "".join(body))
+
+    h = detail["header"]
+    # 1. Header
+    body.append(
+        f'<div class="card" style="margin-top:18px"><h4>{tk} · {_esc(h["company"])} '
+        f'<span class="status-pill s-{"open" if detail["status"]=="open" else "closed"}">'
+        f'{_esc(detail["status"])}</span></h4>'
+        f'<div class="cnote">{_esc(h["sector"])} · {_esc(h["industry"])} · '
+        f'current price {_esc(h["current_price"])} · composite '
+        f'<b style="color:var(--ink)">{h["composite"]:.3f}</b> · {_esc(h["rank"])} · '
+        f'entered {_esc(h["entry_date"])}</div></div>'
+    )
+
+    # 2. Score mechanics
+    rows = "".join(
+        f'<tr><td class="l tk">{_esc(m["factor"])}</td>'
+        f'<td>{"—" if m["sub_score"] is None else f"{m['sub_score']:.3f}"}</td>'
+        f'<td>{m["weight"]}%</td><td class="l muted">{_esc(m["note"])}</td></tr>'
+        for m in detail["mechanics"]
+    )
+    body.append(
+        '<div class="card" style="margin-top:1px"><h4>Score mechanics</h4>'
+        '<div class="cnote">What the composite is made of — factual sub-score x weight, '
+        'not a judgment of the trade.</div>'
+        '<div class="tbl-wrap" style="border:none"><table style="min-width:0">'
+        '<thead><tr><th class="l">factor</th><th>sub-score</th><th>weight</th>'
+        f'<th class="l">what it is</th></tr></thead><tbody>{rows}</tbody></table></div></div>'
+    )
+
+    # 4. Factor inputs (insider aggregates always live; recorded inputs if present)
+    agg = detail["insider_aggregates"]
+    inp = detail.get("inputs")
+    inp_line = (
+        f'F-score {_esc(inp.get("fscore"))} · GP/A '
+        f'{"—" if inp.get("gpa") is None else f"{float(inp['gpa']):.3f}"}'
+        if inp else "input detail not recorded for this entry"
+    )
+    body.append(
+        '<div class="card" style="margin-top:1px"><h4>Factor inputs</h4>'
+        '<div class="cnote">The underlying data behind each weight.</div>'
+        f'<div style="line-height:1.9"><b>Insider</b> (40%): {agg["n_opportunistic"]} '
+        f'opportunistic buy(s) from {agg["cluster_size"]} insider(s), '
+        f'{_money(agg["total_usd"])} total, C-suite: {"yes" if agg["csuite"] else "no"}, '
+        f'{agg["lookback_days"]}-day lookback.<br>'
+        f'<b>Quality</b> (30%): {inp_line}.<br>'
+        '<b>Valuation</b> (20%): neutral (no PIT sector-median source).<br>'
+        '<b>Momentum</b> (10%): neutral (no PIT EPS-revision source).<br>'
+        '<b>Technical</b> (0%): shelved — regime-conditional per Task 14.</div></div>'
+    )
+
+    # 3. Insider evidence — raw Form 4
+    if detail["form4"]:
+        frows = "".join(
+            f'<tr><td class="l">{_esc(r["insider"])}</td><td class="l muted">{_esc(r["role"])}</td>'
+            f'<td class="muted">{_esc(r["date"])}</td><td>{r["shares"]:,}</td>'
+            f'<td>{_money(r["value"])}</td><td class="l">{_esc(r["classification"])}</td></tr>'
+            for r in detail["form4"]
+        )
+        ev = (
+            '<div class="tbl-wrap"><table><thead><tr><th class="l">insider</th>'
+            '<th class="l">role</th><th>txn date</th><th>shares</th><th>$ value</th>'
+            f'<th class="l">CMP class</th></tr></thead><tbody>{frows}</tbody></table></div>'
+        )
+    else:
+        ev = '<div class="empty">No Form 4 open-market purchases on record for this ticker.</div>'
+    body.append(
+        '<div class="card" style="margin-top:1px"><h4>Insider evidence — Form 4 purchases</h4>'
+        '<div class="cnote">The raw open-market buys (code P) behind the insider factor, '
+        f'from form4_historical. Newest first.</div>{ev}</div>'
+    )
+
+    # 5. Company snapshot
+    p = detail["profile"]
+    margin = p.get("profit_margin")
+    body.append(
+        '<div class="card" style="margin-top:1px"><h4>Company snapshot</h4>'
+        f'<div class="cnote">Sector {_esc(p.get("sector"))} · industry {_esc(p.get("industry"))} '
+        f'· market cap {_money(p.get("market_cap"))} · revenue {_money(p.get("revenue"))} · '
+        f'net margin {"—" if margin is None else f"{float(margin)*100:.1f}%"}</div>'
+        f'<div style="color:var(--ink-dim);line-height:1.6">{_esc(p.get("summary"))}</div></div>'
+    )
+    return _detail_doc(tk, "".join(body))
+
+
+def _detail_doc(tk: str, inner: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QIVC · {tk}</title>
+{_FONTS}
+<style>{_CSS}</style>
+</head>
+<body>
+{_BANNER}
+<div class="wrap">
+  <header style="padding-bottom:14px">
+    <div class="eyebrow">QIVC · ticker drill-down</div>
+    <h1 class="title" style="font-size:34px">{tk}</h1>
+    <div class="sub"><a href="/" style="color:var(--amber);text-decoration:none">← back to ledger</a></div>
+  </header>
+  <div class="section" style="margin-top:18px">{inner}</div>
+  <footer>Factual mechanics readout. This view explains why the algorithm ranked the
+  name — it is not investment advice and recommends nothing. The composite has shown
+  no predictive power (R²≈0.004 in backtesting).</footer>
+</div>
 </body>
 </html>
 """

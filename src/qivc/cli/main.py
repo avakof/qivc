@@ -660,11 +660,12 @@ def paper(
         else []
     )
 
-    positions, n_scored, regime, components, regime_source = assemble_paper_portfolio(
+    positions, n_scored, regime, components, regime_source, inputs = assemble_paper_portfolio(
         settings, d, config, prev_positions
     )
     record = build_record(
-        d, config, regime, positions, n_scored, components, regime_source=regime_source
+        d, config, regime, positions, n_scored, components,
+        regime_source=regime_source, inputs_by_ticker=inputs,
     )
     append_record(ledger, record)
 
@@ -759,7 +760,7 @@ def dashboard(
         try:
             httpd = create_server(
                 ledger, config, port=port, price_provider=YFinancePriceProvider(),
-                delisting_lookup=delisting_lookup,
+                delisting_lookup=delisting_lookup, db_path=settings.db_path,
             )
         except OSError as exc:
             typer.echo(

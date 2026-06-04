@@ -46,6 +46,7 @@ class TradeSpan:
     composite: float
     components: dict[str, float]
     weight: float             # equal-weight book weight (for portfolio contribution)
+    inputs: dict[str, float | int | None]  # raw factor inputs at entry (drill-down)
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +91,8 @@ def reconstruct_trades(records: list[PaperRecord]) -> tuple[list[TradeSpan], lis
 
 def _span(p: PaperPosition, exit_date: str | None) -> TradeSpan:
     return TradeSpan(
-        p.ticker, p.entry_date, exit_date, p.composite, dict(p.components), p.weight
+        p.ticker, p.entry_date, exit_date, p.composite, dict(p.components), p.weight,
+        dict(p.inputs),
     )
 
 
