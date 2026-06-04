@@ -660,8 +660,10 @@ def paper(
         else []
     )
 
-    positions, n_scored, regime = assemble_paper_portfolio(settings, d, config, prev_positions)
-    record = build_record(d, config, regime, positions, n_scored)
+    positions, n_scored, regime, components = assemble_paper_portfolio(
+        settings, d, config, prev_positions
+    )
+    record = build_record(d, config, regime, positions, n_scored, components)
     append_record(ledger, record)
 
     bar = "=" * 66
@@ -694,3 +696,69 @@ def paper(
     else:
         typer.echo("No holdings this period (100% T-bills / cash).")
     typer.echo(f"Appended to {ledger}")
+
+
+# ---------------------------------------------------------------------------
+# dashboard — live forward paper-trade dashboard (Task 15)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def dashboard(
+    ledger: str = typer.Option(
+        "data/paper/ledger.jsonl", "--ledger", help="Paper-ledger JSONL path."
+    ),
+    config: str = typer.Option(
+        "N10_thr90_hold30", "--config", help="Grid config label to read."
+    ),
+    out: str = typer.Option(
+        "data/paper/dashboard.html", "--out", help="Output HTML path."
+    ),
+    no_open: bool = typer.Option(False, "--no-open", help="Do not open the browser."),
+) -> None:
+    """
+    Render the live forward paper-trade dashboard from the REAL qivc paper ledger.
+
+    Marks open positions with current yfinance prices; reconstructs the forward-only
+    equity curve; recomputes every panel from scratch. NO backtest / PIT / synthetic
+    data — begins near-empty and fills as the ledger accumulates. Local only, no
+    orders, the PAPER — NOT VALIDATED banner is permanent.
+    """
+    from datetime import date as _date
+    from pathlib import Path as _Path
+
+    from qivc.config import Settings
+    from qivc.dashboard import YFinancePriceProvider, build_dashboard_data, render_html
+
+    settings = Settings()
+    # Delisting lookup (conservative B3 marks for held-then-delisted names). Optional:
+    # if the PIT tables aren't present, fall back to no delisting marks.
+    delisting_lookup = None
+    try:
+        from qivc.backtest.pit_universe import SecPitProvider
+
+        delisting_lookup = SecPitProvider(settings.db_path).get_delisting_event
+    except Exception as exc:  # pragma: no cover - defensive
+        typer.echo(f"(delisting marks unavailable: {exc})")
+
+    data = build_dashboard_data(
+        ledger,
+        config,
+        price_provider=YFinancePriceProvider(),
+        today=_date.today(),
+        delisting_lookup=delisting_lookup,
+    )
+    html = render_html(data)
+    out_path = _Path(out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(html)
+
+    n = data["headline"]["n"]
+    typer.echo(f"Dashboard written: {out_path}  (closed trades: {n}, "
+               f"open: {len(data['open'])})")
+    if n == 0 and not data["open"]:
+        typer.echo("Ledger is empty/near-empty — run `qivc paper` to accumulate forward data.")
+    if not no_open:
+        import webbrowser
+
+        webbrowser.open(out_path.resolve().as_uri())

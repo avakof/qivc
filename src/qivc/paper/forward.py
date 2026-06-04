@@ -17,7 +17,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -42,6 +42,9 @@ class PaperPosition:
     weight: float
     composite: float
     entry_date: str  # ISO date the name was first entered
+    # 5 factor sub-scores at entry (insider/quality/valuation/momentum/technical),
+    # for the dashboard micro-bars. Empty for older records / when unavailable.
+    components: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -102,8 +105,14 @@ def build_record(
     regime: MarketRegime,
     positions: list[Position],
     n_scored: int,
+    components_by_ticker: dict[str, dict[str, float]] | None = None,
 ) -> PaperRecord:
-    """Build a PaperRecord from constructed positions."""
+    """Build a PaperRecord from constructed positions.
+
+    *components_by_ticker* maps ticker -> the 5 factor sub-scores at entry (for the
+    dashboard micro-bars); omitted -> empty components.
+    """
+    comps = components_by_ticker or {}
     pos = [
         PaperPosition(
             ticker=p.ticker,
@@ -111,6 +120,7 @@ def build_record(
             weight=round(p.weight, 4),
             composite=round(p.composite, 3),
             entry_date=p.entry_date.isoformat(),
+            components={k: round(v, 3) for k, v in comps.get(p.ticker, {}).items()},
         )
         for p in sorted(positions, key=lambda p: -p.weight)
     ]
@@ -139,11 +149,12 @@ def assemble_paper_portfolio(
     config: str,
     prev_positions: list[Position],
     cache_dir: str = "data/paper/_cache",
-) -> tuple[list[Position], int, MarketRegime]:
+) -> tuple[list[Position], int, MarketRegime, dict[str, dict[str, float]]]:
     """
     Live single-date v3.0 build for *as_of*. Fetches regime, prices and EDGAR
     fundamentals for the insider-active universe, scores, and constructs the
-    top-N book vs *prev_positions*. Returns (positions, n_scored, regime).
+    top-N book vs *prev_positions*. Returns (positions, n_scored, regime,
+    components_by_ticker) — the last maps ticker -> the 5 factor sub-scores.
     """
     import httpx
 
@@ -188,4 +199,5 @@ def assemble_paper_portfolio(
     )
     scored = score_universe(factors)
     positions = construct_portfolio(scored, prev_positions, as_of, cfg, regime)
-    return positions, len(scored), regime
+    components = {s.ticker: dict(s.components) for s in scored}
+    return positions, len(scored), regime, components
