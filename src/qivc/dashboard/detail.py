@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 _PROFILE_CACHE = "data/paper/_profile_cache.json"
 _PROFILE_TTL_S = 24 * 60 * 60
 _INSIDER_LOOKBACK_DAYS = 90
+_OPPORTUNISTIC = "opportunistic"
 _FACTORS = ["insider", "quality", "valuation", "momentum", "technical"]
 ProfileFetch = Callable[[str], dict[str, Any]]
 
@@ -44,56 +45,81 @@ def _honest_line(entry_date: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Form 4 insider evidence (from form4_historical; offline)
+# Form 4 insider evidence (from form4_historical; offline) — MIRRORS THE SCORER
+#
+# The scorer (opportunistic_insider_raw) classifies the buys FILED in the
+# *window_days* before the rebalance date, deduped by accession, classified CMP
+# as-of that date. The drill-down must reproduce EXACTLY that set/classification —
+# not classify the oldest historical txn as-of today (the Task-15.4 bug). So we
+# build the same window+classification and label rows from it.
 # ---------------------------------------------------------------------------
+def _insider_window(
+    db_path: str, ticker: str, entry_date: _dt.date, window_days: int
+) -> tuple[list[Any], dict[str, str]]:
+    """The scorer's exact window txns + per-CIK CMP classification (offline)."""
+    from qivc.backtest.pit import filter_by_filing_date
+    from qivc.backtest.signal import _classify_window
+    from qivc.data.bulk_loader import read_purchases
+    from qivc.filters.cluster_detector import dedupe_by_accession
+
+    ws = entry_date - _dt.timedelta(days=window_days)
+    txns = read_purchases(db_path, ws, entry_date, ticker=ticker)  # FILED in [ws, entry]
+    txns = filter_by_filing_date(txns, entry_date)
+    txns = dedupe_by_accession(txns)
+    cls: dict[str, str] = {}
+    if txns:
+        try:
+            cls = _classify_window(db_path, txns, entry_date, 3)
+        except Exception as exc:  # best-effort; show raw evidence anyway
+            log.warning("drill-down: insider classification failed for %s: %s", ticker, exc)
+    return txns, cls
+
+
 def ticker_form4_history(
-    db_path: str, ticker: str, *, as_of: _dt.date, classify: bool = True
+    db_path: str, ticker: str, *, entry_date: _dt.date, window_days: int = _INSIDER_LOOKBACK_DAYS,
 ) -> list[dict[str, Any]]:
-    """Every P-code purchase for *ticker* (newest first) with CMP classification."""
+    """
+    Every P-code purchase for *ticker* knowable at *entry_date* (newest first). The
+    CMP classification of each row uses the SAME window + as-of date the scorer used
+    (so the opportunistic set matches the score); buys outside the window are marked
+    'outside window'.
+    """
     from qivc.data.bulk_loader import read_purchases
 
-    txns = read_purchases(db_path, _dt.date(2006, 1, 1), as_of, ticker=ticker)
-    cls: dict[str, str] = {}
-    if classify and txns:
-        try:
-            from qivc.backtest.signal import _classify_window
-
-            cls = _classify_window(db_path, txns, as_of, 3)
-        except Exception as exc:  # classification is best-effort; show raw evidence anyway
-            log.warning("drill-down: insider classification failed for %s: %s", ticker, exc)
+    all_txns = read_purchases(db_path, _dt.date(2006, 1, 1), entry_date, ticker=ticker)
+    _win, cls = _insider_window(db_path, ticker, entry_date, window_days)
+    ws_iso = (entry_date - _dt.timedelta(days=window_days)).isoformat()
     rows = []
-    for t in sorted(txns, key=lambda x: x.transaction_date, reverse=True):
+    for t in sorted(all_txns, key=lambda x: x.filed_date, reverse=True):
         role = (
             "Officer" if t.is_officer
             else "Director" if t.is_director
             else "10% owner" if t.is_ten_percent_owner
             else "—"
         )
+        in_window = t.filed_date.isoformat() >= ws_iso
+        klass = cls.get(t.cik, "unclassified") if in_window else "outside window"
         rows.append({
             "insider": t.name, "role": role, "date": t.transaction_date.isoformat(),
-            "shares": round(t.shares), "value": round(t.value_usd),
-            "classification": cls.get(t.cik, "unclassified"),
+            "filed": t.filed_date.isoformat(), "shares": round(t.shares),
+            "value": round(t.value_usd), "classification": klass,
         })
     return rows
 
 
 def insider_aggregates(
-    history: list[dict[str, Any]], entry_date: str
+    db_path: str, ticker: str, entry_date: _dt.date, window_days: int = _INSIDER_LOOKBACK_DAYS,
 ) -> dict[str, Any]:
-    """Cluster aggregates over the opportunistic buys in the 90d before entry."""
-    end = entry_date
-    start = (
-        _dt.date.fromisoformat(entry_date) - _dt.timedelta(days=_INSIDER_LOOKBACK_DAYS)
-    ).isoformat()
-    window = [h for h in history if start <= h["date"] <= end]
-    opp = [h for h in window if h["classification"] == "opportunistic"]
+    """Cluster aggregates over the OPPORTUNISTIC buys in the scorer's window (exact)."""
+    txns, cls = _insider_window(db_path, ticker, entry_date, window_days)
+    opp = [t for t in txns if cls.get(t.cik) == _OPPORTUNISTIC]
     return {
-        "lookback_days": _INSIDER_LOOKBACK_DAYS,
-        "n_in_window": len(window),
+        "lookback_days": window_days,
+        "n_in_window": len(txns),
         "n_opportunistic": len(opp),
-        "cluster_size": len({h["insider"] for h in opp}),
-        "total_usd": sum(h["value"] for h in opp),
-        "csuite": any(h["role"] == "Officer" for h in opp),
+        "cluster_size": len({t.cik for t in opp}),
+        "total_usd": round(sum(t.value_usd for t in opp)),
+        "csuite": any(t.is_officer for t in opp),
     }
 
 
@@ -211,9 +237,13 @@ def build_ticker_detail(
     today: _dt.date,
     profile_fetch: ProfileFetch | None = None,
     price_provider: PriceProvider | None = None,
-    classify: bool = True,
+    window_days: int = _INSIDER_LOOKBACK_DAYS,
 ) -> dict[str, Any]:
-    """Assemble the full factual drill-down for *ticker* (or a not-found shell)."""
+    """Assemble the full factual drill-down for *ticker* (or a not-found shell).
+
+    *window_days* is the config's insider-aggregation window (90 for v3.0, 14 for
+    the v3.0-w14 fork) — the drill-down's insider evidence mirrors that window.
+    """
     ticker = ticker.upper()
     records = read_records(ledger, config)
     closed, open_ = reconstruct_trades(records)
@@ -233,8 +263,9 @@ def build_ticker_detail(
             ),
         }
 
-    history = ticker_form4_history(db_path, ticker, as_of=today, classify=classify)
-    agg = insider_aggregates(history, span.entry_date)
+    entry = _dt.date.fromisoformat(span.entry_date)
+    history = ticker_form4_history(db_path, ticker, entry_date=entry, window_days=window_days)
+    agg = insider_aggregates(db_path, ticker, entry, window_days)
     has_inputs = bool(span.inputs)
     return {
         "ticker": ticker, "found": True, "status": status,

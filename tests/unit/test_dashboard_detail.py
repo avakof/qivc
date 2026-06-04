@@ -61,32 +61,72 @@ def _write_ledger(tmp_path: Path, *, with_inputs: bool = True) -> str:
     return str(p)
 
 
+_ENTRY = dt.date(2026, 5, 20)
+
+
 def test_ticker_form4_history_from_store(tmp_path: Path) -> None:
     db = str(tmp_path / "q.db")
     _seed_form4(db)
-    hist = ticker_form4_history(db, "AAOI", as_of=_TODAY)
+    hist = ticker_form4_history(db, "AAOI", entry_date=_ENTRY)
     assert len(hist) == 2
-    assert hist[0]["date"] >= hist[1]["date"]            # newest first
+    assert hist[0]["filed"] >= hist[1]["filed"]          # newest first (by filed date)
     jane = next(h for h in hist if h["insider"] == "Jane Insider")
     assert jane["role"] == "Officer" and jane["value"] == 120000
     assert "classification" in jane                       # CMP class present (offline)
 
 
-def test_insider_aggregates_window() -> None:
-    hist = [
-        {"insider": "A", "role": "Officer", "date": "2026-05-10",
-         "shares": 1, "value": 100000, "classification": "opportunistic"},
-        {"insider": "B", "role": "Director", "date": "2026-05-09",
-         "shares": 1, "value": 50000, "classification": "opportunistic"},
-        {"insider": "C", "role": "—", "date": "2025-01-01",  # outside 90d window
-         "shares": 1, "value": 999, "classification": "opportunistic"},
-    ]
-    agg = insider_aggregates(hist, "2026-05-20")
-    assert agg["cluster_size"] == 2          # A, B (C is out of window)
-    assert agg["n_opportunistic"] == 2
-    assert agg["total_usd"] == 150000
-    assert agg["csuite"] is True
-    assert agg["lookback_days"] == 90
+def test_drilldown_opportunistic_count_matches_scorer(tmp_path: Path) -> None:
+    """Lock the Task-15.4 bug closed: the drill-down's opportunistic count equals
+    the scorer's (same filed-date window, accession-dedup, CMP as-of entry)."""
+    from qivc.backtest.pit import filter_by_filing_date
+    from qivc.backtest.signal import _classify_window
+    from qivc.data.bulk_loader import read_purchases
+    from qivc.filters.cluster_detector import dedupe_by_accession
+
+    db = str(tmp_path / "q.db")
+    _seed_form4(db)
+    window = 90
+    # drill-down's count
+    agg = insider_aggregates(db, "AAOI", _ENTRY, window)
+    # scorer's count, computed independently the way opportunistic_insider_raw does
+    ws = _ENTRY - dt.timedelta(days=window)
+    txns = dedupe_by_accession(
+        filter_by_filing_date(read_purchases(db, ws, _ENTRY, ticker="AAOI"), _ENTRY)
+    )
+    cls = _classify_window(db, txns, _ENTRY, 3)
+    scorer_opp = sum(1 for t in txns if cls.get(t.cik) == "opportunistic")
+    assert agg["n_opportunistic"] == scorer_opp           # exact match
+    # and the rows are not all "unclassified" if the scorer found opportunistic
+    if scorer_opp:
+        hist = ticker_form4_history(db, "AAOI", entry_date=_ENTRY, window_days=window)
+        assert any(h["classification"] == "opportunistic" for h in hist)
+
+
+def test_insider_aggregates_window_size_differs(tmp_path: Path) -> None:
+    """A 14-day window yields a different (smaller-or-equal) in-window set than 90-day
+    when buys span >14 days before entry."""
+    db = str(tmp_path / "q.db")
+    # buys ~40 days apart, both before the 2026-05-20 entry
+    with get_connection(db) as conn:
+        conn.executemany(
+            """INSERT INTO form4_historical (cik,name,title,ticker,shares,price,value_usd,
+               transaction_date,filed_date,transaction_code,is_director,is_officer,
+               is_ten_percent_owner,accession_number,source_quarter)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            [
+                ["111", "Recent Buyer", "CEO", "WND", 100, 10.0, 1000.0,
+                 dt.date(2026, 5, 15), dt.date(2026, 5, 16), "P", False, True, False,
+                 "r1", "2026q2"],
+                ["222", "Older Buyer", "CFO", "WND", 100, 10.0, 1000.0,
+                 dt.date(2026, 4, 1), dt.date(2026, 4, 2), "P", False, True, False,
+                 "o1", "2026q2"],
+            ],
+        )
+        conn.commit()
+    agg14 = insider_aggregates(db, "WND", _ENTRY, 14)   # only the 2026-05-16 filing
+    agg90 = insider_aggregates(db, "WND", _ENTRY, 90)   # both
+    assert agg14["n_in_window"] == 1 and agg90["n_in_window"] == 2
+    assert agg14["lookback_days"] == 14 and agg90["lookback_days"] == 90
 
 
 def test_company_profile_uses_injected_fetch() -> None:
