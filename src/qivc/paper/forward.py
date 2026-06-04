@@ -167,6 +167,7 @@ def assemble_paper_portfolio(
     config: str,
     prev_positions: list[Position],
     cache_dir: str = "data/paper/_cache",
+    insider_lookback_days: int = 90,
 ) -> tuple[
     list[Position], int, MarketRegime, dict[str, dict[str, float]], str,
     dict[str, dict[str, float | int | None]],
@@ -230,6 +231,7 @@ def assemble_paper_portfolio(
         universe=universe,
         sector_map=sector_map,
         fundamentals_provider=fund_provider,
+        insider_lookback_days=insider_lookback_days,
     )
     scored = score_universe(factors)
     positions = construct_portfolio(scored, prev_positions, as_of, cfg, regime)

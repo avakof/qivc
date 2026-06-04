@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,23 @@ def sample_size_label(n: int) -> tuple[str, str]:
     if n < 30:
         return "thin", "thin"
     return "meaningful", "ok"
+
+
+def score_return_r2(pts: list[tuple[float, float]]) -> float | None:
+    """Pearson R² of (composite score at entry, realized return). None if <3 points."""
+    n = len(pts)
+    if n < 3:
+        return None
+    sx = sum(p[0] for p in pts)
+    sy = sum(p[1] for p in pts)
+    sxx = sum(p[0] ** 2 for p in pts)
+    syy = sum(p[1] ** 2 for p in pts)
+    sxy = sum(p[0] * p[1] for p in pts)
+    den = (n * sxx - sx * sx) * (n * syy - sy * sy)
+    if den <= 0:
+        return 0.0
+    r = (n * sxy - sx * sy) / math.sqrt(den)
+    return round(r * r, 4)
 
 
 def top3_concentration(returns: list[float]) -> float:
@@ -193,6 +211,7 @@ def build_dashboard_data(
               "sub": "realized on close only"},
         "n": n, "nLabel": label, "nChip": chip,
         "conc": round(top3_concentration(realized)),
+        "r2": score_return_r2([(c["score"], c["ret"]) for c in closed]),
     }
     return {
         "meta": meta, "headline": headline, "closed": closed, "open": open_,
@@ -205,7 +224,7 @@ def _empty(meta: dict[str, Any]) -> dict[str, Any]:
         "meta": meta,
         "headline": {"A": {"ret": 0.0, "bench": 0.0, "sub": "incl. open marked-to-market"},
                      "B": {"ret": 0.0, "bench": 0.0, "sub": "realized on close only"},
-                     "n": 0, "nLabel": "void", "nChip": "void", "conc": 0},
+                     "n": 0, "nLabel": "void", "nChip": "void", "conc": 0, "r2": None},
         "closed": [], "open": [], "equity": [], "regime": [],
     }
 

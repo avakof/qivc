@@ -97,6 +97,14 @@ tbody tr:hover{background:var(--surface2)}
 .rcell .rs{font-size:12px;margin-top:5px;font-weight:500}
 .r-on{color:var(--pos)} .r-mid{color:var(--amber)} .r-off{color:var(--neg)}
 .rcell .rdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:1px}
+.cfgsel{max-width:1180px;margin:0 auto;padding:14px 28px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.cfglabel{font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--ink-faint);margin-right:4px}
+.cfgbtn{font-size:11px;padding:6px 12px;border:1px solid var(--line2);border-radius:3px;color:var(--ink-dim);text-decoration:none;transition:all .15s}
+.cfgbtn:hover{color:var(--ink);background:var(--surface2)}
+.cfgbtn.on{background:var(--amber);color:#1a1407;font-weight:600;border-color:var(--amber)}
+.cfgbtn.exp{border-style:dashed;border-color:var(--neg-dim)}
+.cfgbtn.exp.on{background:var(--neg);color:#1a0f0a;border-color:var(--neg)}
+.cmpgrid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line)}
 footer{margin-top:40px;border-top:1px solid var(--line);padding-top:16px;color:var(--ink-faint);font-size:10.5px;line-height:1.6}
 footer b{color:var(--ink-dim)}
 .callout{background:var(--surface);border:1px solid var(--line2);border-left:2px solid var(--amber);padding:14px 18px;margin-top:18px;font-size:11.5px;color:var(--ink-dim);line-height:1.6}
@@ -107,6 +115,7 @@ _BODY = """
 <div class="banner">
   ● Paper ledger — <b>not validated · not deployed · no real capital</b> — forward out-of-sample collection only
 </div>
+<div class="cfgsel" id="cfgsel"></div>
 <div class="wrap">
   <header>
     <div class="eyebrow">QIVC · Quantitative Insider-Value Composite</div>
@@ -231,6 +240,16 @@ _SCRIPT = r"""
 const FAC_COLORS=['#C98A3A','#8FA85C','#6E8FA0','#B07AA0','#7A6648'];
 const fmt=v=>(v>=0?'+':'')+Number(v).toFixed(1)+'%';
 const M=PAPER_DATA.meta||{}, H=PAPER_DATA.headline||{};
+
+/* config selector (serve mode: switches the whole dashboard between ledgers) */
+(()=>{
+  const sel=document.getElementById('cfgsel'), cfgs=M.configs||[];
+  if(!cfgs.length){sel.style.display='none';return;}
+  let h='<span class="cfglabel">config</span>';
+  cfgs.forEach(c=>{h+=`<a href="/?config=${c.key}" class="cfgbtn${c.selected?' on':''}${c.experimental?' exp':''}">${c.label}</a>`;});
+  h+='<a href="/compare" class="cfgbtn">compare ⇄</a>';
+  sel.innerHTML=h;
+})();
 
 /* auto-refresh control — default OFF (this is a months-long test, not a ticker).
    Choice persists in localStorage; on interval the page reloads, and in --serve
@@ -408,6 +427,132 @@ const PAPER_DATA = {payload};
 const DETAIL_LINKS = {"true" if detail_links else "false"};
 {_SCRIPT}
 </script>
+</body>
+</html>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Comparison view — 90-day baseline vs 14-day fork, side by side
+# ---------------------------------------------------------------------------
+def render_compare_html(items: list[dict[str, Any]]) -> str:
+    """Side-by-side forward A/B: headlines, overlaid equity, and held-ticker diff."""
+    note = (
+        '<div class="callout"><b>Forward A/B.</b> 90-day is the backtested baseline; '
+        '14-day is an <b>untested parameter change</b> being evaluated forward. Neither '
+        "is validated. Too few trades to conclude anything yet.</div>"
+    )
+
+    # headline table
+    head = "".join(f'<th>{_esc(it["label"])}</th>' for it in items)
+
+    def row(lbl: str, fn: Any) -> str:
+        return f'<tr><td class="l muted">{lbl}</td>' + "".join(
+            f"<td>{fn(it['data'])}</td>" for it in items) + "</tr>"
+    hl = (
+        '<div class="card"><h4>Headline — both configs</h4>'
+        '<div class="tbl-wrap" style="border:none"><table style="min-width:0">'
+        f'<thead><tr><th class="l">metric</th>{head}</tr></thead><tbody>'
+        + row("cumulative return (realized, B)",
+              lambda d: f'{d["headline"]["B"]["ret"]:+.1f}%')
+        + row("closed trades (sample)",
+              lambda d: f'{d["headline"]["n"]} · {d["headline"]["nLabel"]}')
+        + row("vs IWN", lambda d: f'{d["headline"]["B"]["bench"]:+.1f}%')
+        + row("top-3 concentration", lambda d: f'{d["headline"]["conc"]}%' if d["headline"]["n"] else "—")
+        + row("score→return R²",
+              lambda d: "—" if d["headline"]["r2"] is None else f'{d["headline"]["r2"]:.4f}')
+        + "</tbody></table></div></div>"
+    )
+
+    # held-ticker difference (open positions per config)
+    diff = ""
+    if len(items) == 2:
+        a, b = items[0], items[1]
+        sa = {o["ticker"] for o in a["data"]["open"]}
+        sb = {o["ticker"] for o in b["data"]["open"]}
+        only_a = sorted(sa - sb)
+        only_b = sorted(sb - sa)
+        both = sorted(sa & sb)
+        diff = (
+            '<div class="card" style="margin-top:1px"><h4>Held-ticker difference '
+            '(the most informative panel)</h4>'
+            '<div class="cnote">How the window change actually changes selection, '
+            'right now.</div>'
+            f'<div style="line-height:1.9"><b>both hold:</b> {", ".join(both) or "—"}<br>'
+            f'<b>only {_esc(a["label"])}:</b> {", ".join(only_a) or "—"}<br>'
+            f'<b>only {_esc(b["label"])}:</b> {", ".join(only_b) or "—"}</div></div>'
+        )
+
+    equity = _overlay_equity(items)
+    inner = f"{note}<div style='margin-top:18px'>{hl}{equity}{diff}</div>"
+    return _compare_doc(inner)
+
+
+def _overlay_equity(items: list[dict[str, Any]]) -> str:
+    series = [(it["label"], it["data"]["equity"]) for it in items]
+    if not any(eq for _, eq in series):
+        return ('<div class="card" style="margin-top:1px"><h4>Equity curves</h4>'
+                '<div class="empty">accumulating forward data — curves begin at each '
+                'ledger\'s first entry</div></div>')
+    pts = []
+    for _, eq in series:
+        pts += [p["paper"] for p in eq] + [p.get("iwn", 0) for p in eq]
+    lo, hi = min([*pts, 0.0]), max([*pts, 0.0])
+    pad = (hi - lo) * 0.15 or 1
+    lo -= pad
+    hi += pad
+    W, Ht, P = 760, 240, {"t": 16, "r": 16, "b": 24, "l": 36}
+    xs, ys = W - P["l"] - P["r"], Ht - P["t"] - P["b"]
+    cols = ["var(--amber)", "var(--neg)", "var(--pos)"]
+
+    def line(eq: list[dict[str, Any]], key: str, col: str, dash: str = "") -> str:
+        if len(eq) < 2:
+            return ""
+        d = " ".join(
+            f'{"L" if i else "M"}{P["l"] + i / (len(eq) - 1) * xs:.1f} '
+            f'{P["t"] + (1 - (pt[key] - lo) / (hi - lo)) * ys:.1f}'
+            for i, pt in enumerate(eq)
+        )
+        da = f'stroke-dasharray="{dash}"' if dash else ""
+        return f'<path d="{d}" fill="none" stroke="{col}" stroke-width="2" {da}/>'
+
+    body = f'<line class="grid-l" x1="{P["l"]}" y1="{P["t"] + (1 - (0 - lo) / (hi - lo)) * ys:.1f}" x2="{W - P["r"]}" y2="{P["t"] + (1 - (0 - lo) / (hi - lo)) * ys:.1f}" stroke="var(--line2)"/>'
+    legend = []
+    for i, (label, eq) in enumerate(series):
+        body += line(eq, "paper", cols[i % len(cols)])
+        legend.append(f'<span><i style="background:{cols[i % len(cols)]}"></i>{_esc(label)}</span>')
+    if series and series[0][1]:
+        body += line(series[0][1], "iwn", "var(--ink-dim)", "3 3")
+        legend.append('<span><i style="background:var(--ink-dim)"></i>IWN</span>')
+    return (
+        '<div class="card" style="margin-top:1px"><h4>Equity curves overlaid</h4>'
+        f'<svg viewBox="0 0 {W} {Ht}">{body}</svg>'
+        f'<div class="legend">{"".join(legend)}</div></div>'
+    )
+
+
+def _compare_doc(inner: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QIVC · compare</title>
+{_FONTS}
+<style>{_CSS}</style>
+</head>
+<body>
+{_BANNER}
+<div class="wrap">
+  <header style="padding-bottom:14px">
+    <div class="eyebrow">QIVC · forward A/B</div>
+    <h1 class="title" style="font-size:34px">90-day <em>vs</em> 14-day</h1>
+    <div class="sub"><a href="/" style="color:var(--amber);text-decoration:none">← back to ledger</a></div>
+  </header>
+  <div class="section" style="margin-top:18px">{inner}</div>
+  <footer>Both are paper, forward, out-of-sample. The 90-day v3.0 is the backtested
+  baseline; the 14-day fork is an untested parameter change. Neither is validated or
+  deployed.</footer>
+</div>
 </body>
 </html>
 """

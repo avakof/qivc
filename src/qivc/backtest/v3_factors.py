@@ -47,10 +47,12 @@ FundamentalsProvider = Callable[[str, _dt.date], Fundamentals | None]
 TechnicalProvider = Callable[[str, _dt.date], float | None]
 
 
-def _insider_weight(txn: InsiderTransaction, as_of: _dt.date) -> float:
+def _insider_weight(
+    txn: InsiderTransaction, as_of: _dt.date, lookback_days: int = INSIDER_LOOKBACK_DAYS
+) -> float:
     """Recency- and conviction-weighted contribution of one opportunistic buy."""
     days_ago = (as_of - txn.filed_date).days
-    recency = max(0.0, 1.0 - days_ago / INSIDER_LOOKBACK_DAYS)  # recent -> ~1, old -> ~0
+    recency = max(0.0, 1.0 - days_ago / lookback_days)  # recent -> ~1, old -> ~0
     csuite = 1.5 if txn.is_officer else 1.0
     size = min(max(txn.value_usd, 0.0) / 250_000.0, 4.0)  # capped size influence
     return recency * csuite * math.log1p(size)
@@ -61,12 +63,14 @@ def opportunistic_insider_raw(
     universe: set[str],
     as_of: _dt.date,
     cmp_history_years: int = 3,
+    lookback_days: int = INSIDER_LOOKBACK_DAYS,
 ) -> dict[str, float]:
     """
     Recency/conviction-weighted opportunistic-insider activity per ticker over the
-    trailing 90 days (strictly PIT, universe-restricted). Returns ticker -> raw.
+    trailing *lookback_days* (DEFAULT 90, the v3.0 baseline — do not change). Strictly
+    PIT, universe-restricted. Returns ticker -> raw.
     """
-    window_start = as_of - _dt.timedelta(days=INSIDER_LOOKBACK_DAYS)
+    window_start = as_of - _dt.timedelta(days=lookback_days)
     txns = bulk_loader.read_purchases(db_path, window_start, as_of)
     txns = filter_by_filing_date(txns, as_of)
     txns = [t for t in txns if t.ticker in universe]
@@ -76,7 +80,7 @@ def opportunistic_insider_raw(
     for t in txns:
         if classifications.get(t.cik) != _OPPORTUNISTIC:
             continue
-        raw[t.ticker] = raw.get(t.ticker, 0.0) + _insider_weight(t, as_of)
+        raw[t.ticker] = raw.get(t.ticker, 0.0) + _insider_weight(t, as_of, lookback_days)
     return raw
 
 
@@ -89,13 +93,18 @@ def assemble_factors(
     fundamentals_provider: FundamentalsProvider,
     technical_provider: TechnicalProvider | None = None,
     cmp_history_years: int = 3,
+    insider_lookback_days: int = INSIDER_LOOKBACK_DAYS,
 ) -> list[StockFactors]:
     """Build StockFactors for the insider-active scored universe at *as_of*.
 
     *technical_provider* (Task 12) supplies the PIT technical-oversold raw score;
     when None the factor is neutral (back-compat: v3.0 weights it 0 anyway).
+    *insider_lookback_days* DEFAULTS to 90 (v3.0 baseline); the v3.0-w14 fork (Task
+    17) passes 14 — nothing else differs.
     """
-    insider_raw = opportunistic_insider_raw(db_path, universe, as_of, cmp_history_years)
+    insider_raw = opportunistic_insider_raw(
+        db_path, universe, as_of, cmp_history_years, insider_lookback_days
+    )
     factors: list[StockFactors] = []
     for ticker in sorted(insider_raw):
         fund = fundamentals_provider(ticker, as_of)

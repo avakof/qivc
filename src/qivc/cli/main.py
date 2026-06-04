@@ -637,6 +637,7 @@ def paper(
     places NO trades. See STRATEGY_NOTES.md (Phase 4A — CLOSED / DO NOT DEPLOY).
     """
     from datetime import date as _date
+    from pathlib import Path as _Path
 
     from qivc.backtest.portfolio_constructor import Position
     from qivc.config import Settings
@@ -644,64 +645,57 @@ def paper(
     settings = Settings()
     d = _date.fromisoformat(as_of) if as_of else _date.today()
 
-    prev_rec = read_last_record(ledger, config)
-    prev_positions = (
-        [
-            Position(
-                ticker=p.ticker,
-                sector=p.sector,
-                weight=p.weight,
-                entry_date=_date.fromisoformat(p.entry_date),
-                composite=p.composite,
-            )
-            for p in prev_rec.positions
-        ]
-        if prev_rec
-        else []
-    )
-
-    positions, n_scored, regime, components, regime_source, inputs = assemble_paper_portfolio(
-        settings, d, config, prev_positions
-    )
-    record = build_record(
-        d, config, regime, positions, n_scored, components,
-        regime_source=regime_source, inputs_by_ticker=inputs,
-    )
-    append_record(ledger, record)
+    # Two parallel forward experiments to SEPARATE ledgers: the 90-day baseline (the
+    # existing --ledger, untouched) and the 14-day fork alongside it. ONLY the
+    # insider-aggregation window differs; everything else is identical.
+    led14 = str(_Path(ledger).with_name(_Path(ledger).stem + "_w14.jsonl"))
+    variants = [
+        (config, config, ledger, 90, "backtested baseline"),
+        (f"{config}_w14", config, led14, 14, "UNTESTED fork — forward eval"),
+    ]
 
     bar = "=" * 66
     typer.secho(bar, fg=typer.colors.YELLOW)
     typer.secho(
         "  QIVC PAPER — RESEARCH ONLY. NO ORDERS. NO DEMONSTRATED EDGE.",
-        fg=typer.colors.YELLOW,
-        bold=True,
-    )
-    typer.secho(
-        "  v3.0 is survivor-biased in-sample (R^2=0.004; see STRATEGY_NOTES.md).",
-        fg=typer.colors.YELLOW,
+        fg=typer.colors.YELLOW, bold=True,
     )
     typer.secho("  DO NOT DEPLOY — forward out-of-sample record only.", fg=typer.colors.YELLOW)
     typer.secho(bar, fg=typer.colors.YELLOW)
-    _rsrc = "" if record.regime_source == "fred_live" else "  ⚠ regime=neutral fallback (FRED down)"
-    typer.echo(
-        f"As-of: {record.as_of}   Config: {config}   Regime: {record.regime}{_rsrc}"
-    )
-    typer.echo(
-        f"Scored (insider-active): {n_scored}   Held: {len(positions)}   "
-        f"Equity: {record.equity_pct:.1f}%  (rest cash/T-bills)"
-    )
-    if record.positions:
-        typer.echo(
-            f"{'Ticker':<8}{'Sector':<24}{'Weight%':>9}{'Composite':>11}{'Entry':>13}"
+
+    for tag, grid_cfg, led, window, note in variants:
+        prev_rec = read_last_record(led, tag)
+        prev_positions = (
+            [
+                Position(
+                    ticker=p.ticker, sector=p.sector, weight=p.weight,
+                    entry_date=_date.fromisoformat(p.entry_date), composite=p.composite,
+                )
+                for p in prev_rec.positions
+            ]
+            if prev_rec else []
         )
-        for p in record.positions:
-            typer.echo(
-                f"{p.ticker:<8}{p.sector[:23]:<24}{p.weight * 100:>8.1f}%"
-                f"{p.composite:>11.3f}{p.entry_date:>13}"
+        positions, n_scored, regime, components, regime_source, inputs = (
+            assemble_paper_portfolio(
+                settings, d, grid_cfg, prev_positions, insider_lookback_days=window
             )
-    else:
-        typer.echo("No holdings this period (100% T-bills / cash).")
-    typer.echo(f"Appended to {ledger}")
+        )
+        record = build_record(
+            d, tag, regime, positions, n_scored, components,
+            regime_source=regime_source, inputs_by_ticker=inputs,
+        )
+        append_record(led, record)
+
+        rsrc = "" if record.regime_source == "fred_live" else "  ⚠ regime=neutral (FRED down)"
+        typer.secho(f"\n[{tag}] {window}-day window — {note}", bold=True)
+        typer.echo(f"  Regime: {record.regime}{rsrc}   Scored: {n_scored}   "
+                   f"Held: {len(positions)}   Equity: {record.equity_pct:.1f}%")
+        for p in record.positions:
+            typer.echo(f"    {p.ticker:<8}{p.sector[:22]:<23}{p.weight * 100:>6.1f}%"
+                       f"{p.composite:>10.3f}{p.entry_date:>13}")
+        if not record.positions:
+            typer.echo("    (no holdings — 100% T-bills / cash)")
+        typer.echo(f"  Appended to {led}")
 
 
 # ---------------------------------------------------------------------------
@@ -755,12 +749,14 @@ def dashboard(
     if serve:
         import webbrowser
 
+        from qivc.dashboard.configs import DEFAULT_CONFIG, PAPER_CONFIGS
         from qivc.dashboard.server import create_server
 
         try:
             httpd = create_server(
-                ledger, config, port=port, price_provider=YFinancePriceProvider(),
+                port=port, price_provider=YFinancePriceProvider(),
                 delisting_lookup=delisting_lookup, db_path=settings.db_path,
+                configs=PAPER_CONFIGS, default_key=DEFAULT_CONFIG,
             )
         except OSError as exc:
             typer.echo(

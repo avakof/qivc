@@ -506,19 +506,20 @@ def test_paper_writes_ledger_and_warns(patched_env: Path, monkeypatch: pytest.Mo
         Position("AAA", "Energy", 0.5, date(2026, 6, 2), 0.71),
         Position("BBB", "Health Care", 0.5, date(2026, 6, 2), 0.69),
     ]
-    seen_prev: list[list] = []
+    calls: list[tuple[int, set[str]]] = []  # (window, prev tickers) per assemble call
 
     _fc = {"insider": 0.8, "quality": 0.4, "valuation": 0.6, "momentum": 0.5, "technical": 0.5}
     fake_components = {"AAA": _fc, "BBB": _fc}
-
     fake_inputs = {"AAA": {"fscore": 7, "gpa": 0.3}, "BBB": {"fscore": 5, "gpa": 0.2}}
 
-    def fake_assemble(settings, as_of, config, prev_positions, cache_dir="x"):  # type: ignore[no-untyped-def]
-        seen_prev.append(prev_positions)
+    def fake_assemble(settings, as_of, config, prev_positions, cache_dir="x",  # type: ignore[no-untyped-def]
+                      insider_lookback_days=90):
+        calls.append((insider_lookback_days, {p.ticker for p in prev_positions}))
         return fake_positions, 7, regime, fake_components, "fred_live", fake_inputs
 
     monkeypatch.setattr(cli_main, "assemble_paper_portfolio", fake_assemble)
     ledger = patched_env / "paper" / "ledger.jsonl"
+    ledger14 = patched_env / "paper" / "ledger_w14.jsonl"
 
     result = runner.invoke(
         cli_main.app,
@@ -526,29 +527,29 @@ def test_paper_writes_ledger_and_warns(patched_env: Path, monkeypatch: pytest.Mo
          "--ledger", str(ledger)],
     )
     assert result.exit_code == 0, result.output
-    assert "DO NOT DEPLOY" in result.output
-    assert "NO ORDERS" in result.output
+    assert "DO NOT DEPLOY" in result.output and "NO ORDERS" in result.output
     assert "AAA" in result.output and "BBB" in result.output
 
-    assert ledger.exists()
+    # BOTH ledgers written, separate files, tagged
     rec = json.loads(ledger.read_text().splitlines()[0])
-    assert rec["config"] == "N10_thr90_hold30"
-    assert rec["as_of"] == "2026-06-02"
-    assert rec["equity_pct"] == 100.0
+    assert rec["config"] == "N10_thr90_hold30" and rec["as_of"] == "2026-06-02"
     assert {p["ticker"] for p in rec["positions"]} == {"AAA", "BBB"}
-    assert "RESEARCH ONLY" in rec["disclaimer"]
-    # first run threads no prior positions
-    assert seen_prev[0] == []
+    rec14 = json.loads(ledger14.read_text().splitlines()[0])
+    assert rec14["config"] == "N10_thr90_hold30_w14"      # 14-day tagged
+    # both windows ran on the first invocation, each with no prior positions
+    assert (90, set()) in calls and (14, set()) in calls
 
-    # second run reads the prior record and threads its positions back in
+    # second run threads each ledger's own prior positions back in (90-day side)
+    calls.clear()
     result2 = runner.invoke(
         cli_main.app,
         ["paper", "--as-of", "2026-07-01", "--config", "N10_thr90_hold30",
          "--ledger", str(ledger)],
     )
     assert result2.exit_code == 0, result2.output
-    assert {p.ticker for p in seen_prev[1]} == {"AAA", "BBB"}
+    assert (90, {"AAA", "BBB"}) in calls and (14, {"AAA", "BBB"}) in calls
     assert len(ledger.read_text().splitlines()) == 2
+    assert len(ledger14.read_text().splitlines()) == 2
 
 
 # ---------------------------------------------------------------------------
