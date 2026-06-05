@@ -27,7 +27,7 @@ def test_compute_indicators_known_values() -> None:
     # hand-checks
     assert roc(closes, 20) == pytest.approx((closes[-1] / closes[-21] - 1) * 100)
     kk, _dd = stochastic(highs, lows, closes)  # type: ignore[misc]
-    assert kk < 20                                # close near the bottom of the range (oversold)
+    assert kk < 20  # close near the bottom of the range (oversold)
     assert money_flow_index(highs, lows, closes, vols) == pytest.approx(0.0)  # all down days
     assert macd(closes) is not None
 
@@ -36,16 +36,17 @@ def test_compute_indicators_known_values() -> None:
     assert mom["RSI(14)"]["value"] == "0.0" and mom["RSI(14)"]["reading"] == "oversold"
     assert "down over 20d" in mom["Rate of Change(20d)"]["reading"]
     vol = _rows(panel, "volume")
-    assert vol["Volume vs 20-day avg"]["value"] == "1.00x"            # constant volume
+    assert vol["Volume vs 20-day avg"]["value"] == "1.00x"  # constant volume
     assert vol["Money Flow Index(14)"]["reading"].startswith("oversold")
     # three groups, all populated
     assert panel["momentum"] and panel["reversion"] and panel["volume"]
 
 
 def test_compute_indicators_insufficient_history() -> None:
-    closes = [10.0, 10.1, 9.9, 10.2, 10.0]      # 5 bars — far too few
-    panel = compute_indicators([c + 1 for c in closes], [c - 1 for c in closes],
-                               closes, [100.0] * 5)
+    closes = [10.0, 10.1, 9.9, 10.2, 10.0]  # 5 bars — far too few
+    panel = compute_indicators(
+        [c + 1 for c in closes], [c - 1 for c in closes], closes, [100.0] * 5
+    )
     # nothing requiring long windows computes; groups are empty (graceful)
     assert panel["momentum"] == [] or all(
         r["name"] != "Price vs SMA(200)" for r in panel["momentum"]
