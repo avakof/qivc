@@ -387,7 +387,8 @@ document.querySelectorAll('#modeToggle button').forEach(b=>{
   const el=document.getElementById('regime');
   if(!PAPER_DATA.regime.length){el.innerHTML='<div class="rcell"><div class="rm">—</div><div class="rs muted">no months yet</div></div>';return;}
   el.innerHTML=PAPER_DATA.regime.map(r=>{const m=map[r.state]||['r-mid',r.state.toUpperCase(),'var(--amber)'];
-    return `<div class="rcell"><div class="rm">${r.month}</div><div class="rs ${m[0]}"><span class="rdot" style="background:${m[2]}"></span>${m[1]}</div></div>`;}).join('');
+    const src=r.source?`<div class="rm" style="margin-top:4px;font-size:9px">via ${r.source}</div>`:'';
+    return `<div class="rcell"><div class="rm">${r.month}</div><div class="rs ${m[0]}"><span class="rdot" style="background:${m[2]}"></span>${m[1]}</div>${src}</div>`;}).join('');
 })();
 """
 

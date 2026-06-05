@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as _dt
 import logging
 import time
+from collections.abc import Callable
 
 import httpx
 
@@ -104,22 +105,69 @@ def regime_as_of(as_of: _dt.date, client: httpx.Client | None = None) -> MarketR
     )
 
 
+# yfinance-derived fallback regime closes provider: tickers, start, end ->
+# {ticker: {ISO date: close}}. Matches dashboard.YFinancePriceProvider.daily_closes.
+YfCloses = Callable[[list[str], _dt.date, _dt.date], dict[str, dict[str, float]]]
+
+
+def regime_from_yfinance(as_of: _dt.date, fetch: YfCloses) -> MarketRegime | None:
+    """
+    VIX-LED regime from yfinance when FRED is unreachable. Inputs:
+      - ^VIX  -> VIX 60d SMA (the primary risk-on/off signal)
+      - ^TNX - ^IRX -> yield curve (10yr minus 3mo, bps; approximate)
+      - credit spread: OMITTED (no clean yfinance ticker) -> 0, so classification is
+        VIX-led with yield-curve secondary. Documented; the overlay only sizes.
+    Strictly PIT (closes dated before as_of). Returns None if no ^VIX data.
+    """
+    data = fetch(["^VIX", "^TNX", "^IRX"], as_of - _dt.timedelta(days=120), as_of)
+    cutoff = as_of.isoformat()
+
+    def before(tk: str) -> list[float]:
+        s = data.get(tk, {})
+        return [s[d] for d in sorted(s) if d < cutoff]  # observable before as_of
+
+    vix = before("^VIX")
+    if not vix:
+        return None
+    tnx, irx = before("^TNX"), before("^IRX")
+    yield_curve_bps = (tnx[-1] - irx[-1]) * 100 if (tnx and irx) else 0.0
+    vix_60d_sma = _sma(vix, 60)
+    regime = _classify_regime(
+        vix_60d_sma=vix_60d_sma,
+        credit_spread_bps=0.0,           # omitted in the yfinance fallback
+        credit_spread_60d_ago_bps=0.0,   # -> no credit-widening trigger; VIX-led
+        yield_curve_bps=yield_curve_bps,
+    )
+    return MarketRegime(
+        vix_60d_sma=vix_60d_sma, credit_spread_bps=0.0,
+        yield_curve_bps=yield_curve_bps, value_growth_12m=0.0, regime=regime,
+    )
+
+
 def regime_as_of_resilient(
-    as_of: _dt.date, client: httpx.Client | None = None
+    as_of: _dt.date,
+    client: httpx.Client | None = None,
+    yf_fetch: YfCloses | None = None,
 ) -> tuple[MarketRegime, str]:
     """
-    Regime + source tag, never raising on FRED being down. Returns
-    ``(regime, "fred_live")`` on success, or ``(NEUTRAL_REGIME, "fallback_neutral")``
-    if FRED is unreachable after retries (logged WARNING). The regime only scales
-    position sizing, so the fallback leaves signal recording unaffected — the daily
-    paper record always completes.
+    Regime + source tag, never raising. Order: (1) FRED with retry -> "fred_live";
+    (2) if FRED fails and *yf_fetch* is given, a VIX-led yfinance regime ->
+    "yfinance_fallback"; (3) else the neutral regime -> "neutral_fallback". The
+    regime only scales position sizing, so the daily paper record always completes.
     """
     try:
         return regime_as_of(as_of, client=client), "fred_live"
     except httpx.HTTPError as exc:
-        log.warning(
-            "FRED unreachable after retries (%s) — using neutral regime for %s "
-            "(position sizing only; signal recording unaffected)",
-            type(exc).__name__, as_of,
-        )
-        return NEUTRAL_REGIME, "fallback_neutral"
+        log.warning("FRED unreachable after retries (%s) for %s", type(exc).__name__, as_of)
+    if yf_fetch is not None:
+        try:
+            reg = regime_from_yfinance(as_of, yf_fetch)
+            if reg is not None:
+                log.warning("using yfinance VIX-led fallback regime for %s "
+                            "(credit spread omitted; sizing only)", as_of)
+                return reg, "yfinance_fallback"
+            log.warning("yfinance returned no ^VIX data for %s; using neutral regime", as_of)
+        except Exception as exc:  # yfinance also unreachable -> neutral
+            log.warning("yfinance fallback failed (%s) for %s; using neutral regime",
+                        type(exc).__name__, as_of)
+    return NEUTRAL_REGIME, "neutral_fallback"

@@ -686,7 +686,11 @@ def paper(
         )
         append_record(led, record)
 
-        rsrc = "" if record.regime_source == "fred_live" else "  ⚠ regime=neutral (FRED down)"
+        rsrc = {
+            "fred_live": "",
+            "yfinance_fallback": "  ⚠ regime via yfinance VIX-led fallback (FRED down)",
+            "neutral_fallback": "  ⚠ regime=neutral fallback (FRED + yfinance down)",
+        }.get(record.regime_source, f"  regime_source={record.regime_source}")
         typer.secho(f"\n[{tag}] {window}-day window — {note}", bold=True)
         typer.echo(f"  Regime: {record.regime}{rsrc}   Scored: {n_scored}   "
                    f"Held: {len(positions)}   Equity: {record.equity_pct:.1f}%")

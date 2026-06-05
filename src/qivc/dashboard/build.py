@@ -386,11 +386,17 @@ def _equity_series(
     return out
 
 
+_SRC_LABEL = {"fred_live": "FRED", "yfinance_fallback": "yfinance",
+              "neutral_fallback": "neutral", "fallback_neutral": "neutral"}
+
+
 def _regime_strip(records: list[PaperRecord]) -> list[dict[str, str]]:
-    """Per-month regime from the ledger-captured regime field (no live FRED call)."""
-    seen: dict[str, str] = {}
+    """Per-month regime + source from the ledger-captured fields (no live call)."""
+    seen: dict[str, tuple[str, str]] = {}
     for r in sorted(records, key=lambda r: r.as_of):
-        d = _dt.date.fromisoformat(r.as_of)
-        key = d.strftime("%b %y")
-        seen[key] = r.regime  # last snapshot of the month wins
-    return [{"month": k, "state": v} for k, v in seen.items()]
+        key = _dt.date.fromisoformat(r.as_of).strftime("%b %y")
+        seen[key] = (r.regime, r.regime_source)  # last snapshot of the month wins
+    return [
+        {"month": k, "state": st, "source": _SRC_LABEL.get(src, src)}
+        for k, (st, src) in seen.items()
+    ]

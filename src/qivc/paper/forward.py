@@ -62,8 +62,8 @@ class PaperRecord:
     equity_pct: float  # invested fraction (rest is cash/T-bills)
     n_scored: int  # size of the insider-active scored universe
     positions: list[PaperPosition]
-    # "fred_live" when the regime came from FRED; "fallback_neutral" when FRED was
-    # unreachable and a neutral (risk-on) regime was substituted (sizing only).
+    # regime provenance: "fred_live" | "yfinance_fallback" (FRED down, VIX-led from
+    # yfinance) | "neutral_fallback" (FRED + yfinance both down). Sizing only.
     regime_source: str = "fred_live"
     disclaimer: str = (
         "RESEARCH ONLY — paper/intended book, NO orders placed, NO demonstrated "
@@ -197,8 +197,12 @@ def assemble_paper_portfolio(
     universe = {t for t in iwm_tickers() if sector_map.get(t) not in _EXCLUDE_SECTORS}
     cache = providers.BacktestCache(Path(cache_dir) / as_of.isoformat())
 
+    from qivc.dashboard.prices import YFinancePriceProvider
+
+    # yfinance (which already marks open positions) is the FRED-fallback regime source.
+    yf_fetch = YFinancePriceProvider().daily_closes
     with httpx.Client(timeout=20.0) as hc:
-        regime, regime_source = regime_as_of_resilient(as_of, client=hc)
+        regime, regime_source = regime_as_of_resilient(as_of, client=hc, yf_fetch=yf_fetch)
 
     insider = opportunistic_insider_raw(settings.db_path, universe, as_of)  # local DB, no net
     active = sorted(insider)
