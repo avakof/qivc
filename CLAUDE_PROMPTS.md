@@ -724,7 +724,8 @@ Commit message: "phase7: vectorbt backtesting harness with PIT data"
 
 After all 7 phases:
 
-1. The user runs `uv run qivc screen` daily.
+1. 
+
 2. They inspect the Markdown report at `data/runs/<timestamp>/report.md`.
 3. They use the dossier as research input, then do their own
    final verification before committing capital.
