@@ -1,6 +1,5 @@
 # QIVC v2.0 Agent System — Project Brief
 
-> **For:** Claude Code, running in VS Code
 > **Read first.** This document is the single source of truth for the build. Do not invent requirements not specified here. If you find a contradiction or ambiguity, stop and ask for clarification before coding.
 
 ---
@@ -9,7 +8,6 @@
 
 This brief defines a 7-phase build. Each phase is **independently shippable** with hard acceptance criteria. Execute phases sequentially. Stop at the end of each phase, run the phase's acceptance tests, and report status before moving on.
 
-Companion file `CLAUDE_PROMPTS.md` contains the exact prompts to paste at the start of each phase. The user controls phase transitions.
 
 **Do not skip phases. Do not write tests last. Do not "improve" the spec. If the spec is wrong, say so; do not silently deviate.**
 
@@ -139,7 +137,6 @@ qivc/
 ├── .gitignore
 ├── README.md                 # build instructions, usage
 ├── PROJECT_BRIEF.md          # this file
-├── CLAUDE_PROMPTS.md         # phase-by-phase prompts
 │
 ├── src/qivc/
 │   ├── __init__.py
@@ -649,4 +646,3 @@ If the answer to any of the above is yes, this brief needs an explicit update be
 
 ---
 
-End of project brief. Companion file: `CLAUDE_PROMPTS.md`.
